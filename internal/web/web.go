@@ -39,6 +39,8 @@ func static(files fs.FS) http.Handler {
 		// 使用退役 Worker 替换旧版 XD 的缓存 Worker，避免升级后一直加载旧 UI。
 		if r.URL.Path == "/sw.js" {
 			w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
+			// Gin 的 NoRoute 初始为 404；静态成功响应必须显式覆盖。
+			w.WriteHeader(http.StatusOK)
 			if r.Method != http.MethodHead {
 				w.Write([]byte(retireWorker))
 			}
@@ -56,6 +58,7 @@ func static(files fs.FS) http.Handler {
 		if files == nil {
 			if name == "index.html" {
 				w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+				w.WriteHeader(http.StatusOK)
 				if r.Method != http.MethodHead {
 					w.Write([]byte("MihomoHub backend development build. Run scripts/build-frontend.sh for the embedded dashboard.\n"))
 				}

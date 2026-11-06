@@ -752,7 +752,7 @@ func TestInstanceTransactionRollback(t *testing.T) {
 
 func TestLoginResourcesAndStaticBoundary(t *testing.T) {
 	h := setup(t)
-	for _, path := range []string{"/login", "/login.js", "/"} {
+	for _, path := range []string{"/login", "/login.js", "/login.css", "/sw.js", "/"} {
 		resp, data := h.request("GET", path, "", false)
 		requireStatus(t, resp, 200)
 		if path == "/login" && !bytes.Contains(data, []byte(`method="post"`)) {

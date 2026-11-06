@@ -1,13 +1,4 @@
-# 低内存构建机使用已验证的发布目录；只封装二进制，不在目标机器编译。
-FROM --platform=$BUILDPLATFORM golang:1.27.3-bookworm@sha256:dc0963f32053e4bc451d24d87e3892d42d01021b61f093e98eb95c0352bb84b0 AS package
-WORKDIR /release
-COPY mihomo-hub manifest.json ./
-ARG BACKEND_COMMIT
-ARG FRONTEND_COMMIT
-RUN set -eu; test -n "$BACKEND_COMMIT"; test -n "$FRONTEND_COMMIT"; \
-    grep -F "$BACKEND_COMMIT" manifest.json; grep -F "$FRONTEND_COMMIT" manifest.json; \
-    mkdir -p /out/data; chmod 0700 /out/data
-
+# 由固定工具链生成的发布目录直接组装，无需下载镜像或在部署机编译。
 FROM scratch
 ARG VERSION=0.3.0
 ARG BACKEND_COMMIT
@@ -16,9 +7,9 @@ LABEL org.opencontainers.image.title="MihomoHub" \
       org.opencontainers.image.version=$VERSION \
       org.opencontainers.image.revision=$BACKEND_COMMIT \
       io.mihomohub.frontend-commit=$FRONTEND_COMMIT
-COPY --from=package /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
-COPY --from=package /release/mihomo-hub /mihomo-hub
-COPY --from=package --chown=65532:65532 /out/data /var/lib/mihomo-hub
+COPY ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
+COPY mihomo-hub /mihomo-hub
+COPY --chown=65532:65532 data /var/lib/mihomo-hub
 COPY notices /usr/share/licenses/mihomo-hub
 USER 65532:65532
 WORKDIR /var/lib/mihomo-hub

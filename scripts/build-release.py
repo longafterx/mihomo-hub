@@ -65,6 +65,10 @@ licenses.append('\n--- Go standard library ---\n' + (Path(run(['go', 'env', 'GOR
 (notices / 'go-LICENSES.txt').write_text('\n'.join(licenses))
 (notices / 'go-modules.json').write_text(json.dumps(modules, indent=2) + '\n')
 shutil.copy2(ROOT / 'docs/THIRD-PARTY-NOTICES.md', notices / 'THIRD-PARTY-NOTICES.md')
+# Node 仅用于构建：从锁定版本导出其随版 Mozilla 根证书，scratch 镜像不依赖基础镜像下载。
+if run(['node', '--version']) != 'v' + manifest['node']:
+    raise SystemExit('use the locked Node version to export the CA bundle')
+ca_bundle = run(['node', '-e', "process.stdout.write(require('node:tls').rootCertificates.join('\\n')+'\\n')"])
 artifacts = []
 for target in args.targets.split(','):
     if target not in ('linux/amd64', 'linux/arm64', 'darwin/arm64', 'darwin/amd64', 'windows/amd64'):
@@ -75,10 +79,12 @@ for target in args.targets.split(','):
     if stage.exists():
         shutil.rmtree(stage)
     stage.mkdir()
+    (stage / 'data').mkdir(mode=0o700)
+    (stage / 'ca-certificates.crt').write_text(ca_bundle + '\n')
     binary = stage / ('mihomo-hub.exe' if goos == 'windows' else 'mihomo-hub')
     ldflags = f'-s -w -X github.com/longafterx/mihomo-hub/internal/app.Version={args.version} -X github.com/longafterx/mihomo-hub/internal/app.Commit={backend_commit} -X github.com/longafterx/mihomo-hub/internal/app.FrontendCommit={frontend_commit} -X github.com/longafterx/mihomo-hub/internal/app.BuildTime={build_time}'
     subprocess.run(['go', 'build', '-trimpath', '-buildvcs=false', '-tags=frontend', '-ldflags', ldflags, '-o', str(binary), './cmd/mihomo-hub'], cwd=ROOT, env={**os.environ, 'CGO_ENABLED':'0', 'GOOS':goos, 'GOARCH':goarch}, check=True)
-    version = {**manifest, 'version': args.version, 'backend_commit': backend_commit, 'schema_version': 2, 'build_time':build_time, 'go':run(['go','version']), 'target':target, 'cgo_enabled':False}
+    version = {**manifest, 'version': args.version, 'backend_commit': backend_commit, 'schema_version': 2, 'build_time':build_time, 'go':run(['go','version']), 'target':target, 'cgo_enabled':False, 'binary_sha256':hashlib.sha256(binary.read_bytes()).hexdigest(), 'ca_bundle_source':'Node '+manifest['node']+' bundled Mozilla rootCertificates', 'ca_bundle_sha256':hashlib.sha256((stage / 'ca-certificates.crt').read_bytes()).hexdigest()}
     (stage / 'manifest.json').write_text(json.dumps(version, indent=2) + '\n')
     components = []
     for module in modules:
