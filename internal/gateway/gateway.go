@@ -269,6 +269,9 @@ func (g *Gateway) filterResponse(response *http.Response, ws bool) error {
 	}
 	response.Header.Set("Cache-Control", "no-store")
 	response.Header.Set("X-Content-Type-Options", "nosniff")
+	// 上游即使错误返回 HTML，也不能在平台同源下执行脚本；原生状态、类型和正文保持不变。
+	response.Header.Set("Content-Security-Policy", "sandbox; default-src 'none'; frame-ancestors 'none'")
+	response.Header.Set("Referrer-Policy", "no-referrer")
 	response.Trailer = nil
 	response.Header.Del("Trailer")
 	if ws && response.StatusCode == http.StatusSwitchingProtocols {

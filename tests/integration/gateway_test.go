@@ -551,6 +551,9 @@ func TestUpstreamStatusRedirectAndLimits(t *testing.T) {
 	if !bytes.Equal(data, []byte{0, 255, 'x'}) || resp.Header.Get("Content-Type") != "application/octet-stream" {
 		t.Fatal("status/body/type changed")
 	}
+	if !strings.Contains(resp.Header.Get("Content-Security-Policy"), "sandbox") {
+		t.Fatal("upstream content can execute in platform origin")
+	}
 	if resp.Header.Get("Set-Cookie") != "" {
 		t.Fatal("upstream cookie forwarded")
 	}
