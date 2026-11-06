@@ -4,11 +4,58 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/longafterx/mihomo-hub/internal/instance"
 	"github.com/longafterx/mihomo-hub/internal/mihomo"
 )
+
+func (a *api) testDraft(c *gin.Context) {
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
+	defer cancel()
+	var input struct {
+		InstanceID    string  `json:"instance_id"`
+		ControllerURL *string `json:"controller_url"`
+		Secret        *string `json:"secret"`
+	}
+	if !decode(c, &input, a.Config.Gateway.MaxBodyBytes) {
+		return
+	}
+	var item instance.Instance
+	if input.InstanceID != "" {
+		var err error
+		item, err = a.Instances.Get(input.InstanceID)
+		if err != nil {
+			serviceError(c, err)
+			return
+		}
+	}
+	if input.ControllerURL != nil {
+		item.ControllerURL = *input.ControllerURL
+	}
+	if input.Secret != nil {
+		item.Secret = *input.Secret
+	}
+	policy := mihomo.Policy{AllowPublic: a.Config.Gateway.AllowPublicControllers, AllowedPorts: a.Config.Gateway.AllowedPorts}
+	invalidSecret := len(item.Secret) > 4096 || strings.ContainsAny(item.Secret, "\r\n")
+	if invalidSecret || policy.Validate(ctx, item.ControllerURL) != nil {
+		serviceError(c, instance.ErrInvalid)
+		return
+	}
+	if err := a.Audit(ctx, "instance.test_draft", item.ID, "attempt"); err != nil {
+		fail(c, 503, "audit_unavailable", "probe unavailable")
+		return
+	}
+	// 测试未保存的表单仅 GET /version，不创建实例或切换现有采集器。
+	version, err := policy.Probe(ctx, item.ControllerURL, item.Secret)
+	if err != nil {
+		fail(c, http.StatusBadGateway, "controller_unavailable", "Controller version probe failed")
+		return
+	}
+	respond(c, http.StatusOK, gin.H{"reachable": true, "version": version})
+}
 
 func (a *api) probe(c *gin.Context) {
 	item, generation, err := a.Instances.Acquire(c.Param("id"))

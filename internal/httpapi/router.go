@@ -20,6 +20,7 @@ import (
 	"github.com/longafterx/mihomo-hub/internal/config"
 	"github.com/longafterx/mihomo-hub/internal/gateway"
 	"github.com/longafterx/mihomo-hub/internal/instance"
+	"github.com/longafterx/mihomo-hub/internal/storage"
 )
 
 type Dependencies struct {
@@ -82,7 +83,7 @@ func New(d Dependencies) *gin.Engine {
 	platform.POST("/auth/logout", a.csrf, a.logout)
 	platform.GET("/meta", func(c *gin.Context) {
 		respond(c, http.StatusOK, gin.H{
-			"version": d.Version, "backend_commit": d.Commit, "api_version": "v1", "schema_version": 2,
+			"version": d.Version, "backend_commit": d.Commit, "api_version": "v1", "schema_version": storage.SchemaVersion,
 			"frontend_commit": d.FrontendCommit, "frontend_embedded": d.FrontendEmbedded, "build_time": d.BuildTime,
 		})
 	})
@@ -92,7 +93,9 @@ func New(d Dependencies) *gin.Engine {
 	platform.GET("/system/status", a.systemStatus)
 	platform.GET("/instances", a.list)
 	platform.POST("/instances", a.csrf, a.create)
+	platform.POST("/instances/test", a.csrf, a.testDraft)
 	platform.GET("/instances/:id", a.get)
+	platform.GET("/instances/:id/config", a.editConfig)
 	platform.GET("/instances/:id/status", a.status)
 	platform.POST("/instances/:id/test", a.csrf, a.probe)
 	platform.PATCH("/instances/:id", a.csrf, a.update)
@@ -275,6 +278,16 @@ func (a *api) get(c *gin.Context) {
 	}
 	a.withStatus(&item)
 	respond(c, http.StatusOK, item)
+}
+
+func (a *api) editConfig(c *gin.Context) {
+	item, err := a.Instances.Get(c.Param("id"))
+	if err != nil {
+		serviceError(c, err)
+		return
+	}
+	// 管理员编辑时按需读取地址；列表、运行 Endpoint 与响应中均不含 Secret。
+	respond(c, http.StatusOK, gin.H{"controller_url": item.ControllerURL})
 }
 
 func (a *api) withStatus(item *instance.Instance) {

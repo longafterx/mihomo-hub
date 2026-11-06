@@ -84,7 +84,7 @@ for target in args.targets.split(','):
     binary = stage / ('mihomo-hub.exe' if goos == 'windows' else 'mihomo-hub')
     ldflags = f'-s -w -X github.com/longafterx/mihomo-hub/internal/app.Version={args.version} -X github.com/longafterx/mihomo-hub/internal/app.Commit={backend_commit} -X github.com/longafterx/mihomo-hub/internal/app.FrontendCommit={frontend_commit} -X github.com/longafterx/mihomo-hub/internal/app.BuildTime={build_time}'
     subprocess.run(['go', 'build', '-trimpath', '-buildvcs=false', '-tags=frontend', '-ldflags', ldflags, '-o', str(binary), './cmd/mihomo-hub'], cwd=ROOT, env={**os.environ, 'CGO_ENABLED':'0', 'GOOS':goos, 'GOARCH':goarch}, check=True)
-    version = {**manifest, 'version': args.version, 'backend_commit': backend_commit, 'schema_version': 2, 'build_time':build_time, 'go':run(['go','version']), 'target':target, 'cgo_enabled':False, 'binary_sha256':hashlib.sha256(binary.read_bytes()).hexdigest(), 'ca_bundle_source':'Node '+manifest['node']+' bundled Mozilla rootCertificates', 'ca_bundle_sha256':hashlib.sha256((stage / 'ca-certificates.crt').read_bytes()).hexdigest()}
+    version = {**manifest, 'version': args.version, 'backend_commit': backend_commit, 'schema_version': 3, 'build_time':build_time, 'go':run(['go','version']), 'target':target, 'cgo_enabled':False, 'binary_sha256':hashlib.sha256(binary.read_bytes()).hexdigest(), 'ca_bundle_source':'Node '+manifest['node']+' bundled Mozilla rootCertificates', 'ca_bundle_sha256':hashlib.sha256((stage / 'ca-certificates.crt').read_bytes()).hexdigest()}
     (stage / 'manifest.json').write_text(json.dumps(version, indent=2) + '\n')
     components = []
     for module in modules:

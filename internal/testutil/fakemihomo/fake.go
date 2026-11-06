@@ -45,7 +45,12 @@ func (f *Fake) Close() { f.Server.Close() }
 
 func (f *Fake) serve(w http.ResponseWriter, r *http.Request) {
 	f.Requests.Add(1)
-	if r.Header.Get("Authorization") != "Bearer "+f.Secret {
+	// 无密钥 Controller 接受不带 Authorization 的请求，避免测试替身误报鉴权失败。
+	expectedAuth := ""
+	if f.Secret != "" {
+		expectedAuth = "Bearer " + f.Secret
+	}
+	if r.Header.Get("Authorization") != expectedAuth {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}

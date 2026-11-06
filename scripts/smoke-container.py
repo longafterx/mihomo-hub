@@ -86,6 +86,7 @@ try:
     version=json.loads(docker('exec',name,'/mihomo-hub','version'))
     assert version['frontend_embedded'] is True
     assert len(version['frontend_commit'])==40
+    assert version['schema_version']==3
     assert '__NUXT' in request('/')[1].decode()
     assert 'no-store' in request('/')[2]['Cache-Control']
     assert 'unregister' in request('/sw.js')[1].decode()
@@ -99,9 +100,13 @@ try:
     token=login()
     items=json.loads(request('/api/v1/instances')[1])['data']
     assert len(items)==1 and items[0]['id']==item['id'] and items[0]['has_secret']
+    # 保留历史不再占用名称；同名重建按新身份保存，且允许明确不配置 Secret。
+    request('/api/v1/instances/'+item['id']+'?history=retain',method='DELETE',csrf=token)
+    replacement=json.loads(request('/api/v1/instances',{'name':'container-persisted','controller_url':'http://127.0.0.1:1','secret':'','enabled':False,'collect_enabled':False},csrf=token)[1])['data']
+    assert replacement['id']!=item['id'] and not replacement['has_secret']
     # scratch 镜像中只有 Go 可执行文件、CA 与许可证，没有 Node/shell。
     assert subprocess.run(['docker','exec',name,'/usr/bin/node','--version'],env=environment,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL).returncode!=0
-    print('PASS: nonroot/read-only container, embedded UI, init/login, encrypted instance persistence, restart, online backup, no Node runtime')
+    print('PASS: nonroot/read-only container, embedded UI, init/login, encrypted persistence, restart, backup, retained name reuse/new UUID/empty Secret, no Node runtime')
 finally:
     if tunnel: tunnel.terminate(); tunnel.wait(timeout=10)
     subprocess.run(['docker','rm','-f',name],env=environment,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)

@@ -26,11 +26,13 @@ Cookie 名为 `mihomohub_session`，Path=/，SameSite=Strict，HTTPS Origin 下 
 |---|---|
 | `GET /api/v1/instances` | 200，数组，空列表为 `[]` |
 | `POST /api/v1/instances` | 201，创建实例 |
+| `POST /api/v1/instances/test` | 200，只读验证未保存的连接配置，不新增或修改实例 |
 | `GET /api/v1/instances/{id}` | 200，详情 |
+| `GET /api/v1/instances/{id}/config` | 200，仅管理员编辑时按需读取 `controller_url`，不返回 Secret |
 | `PATCH /api/v1/instances/{id}` | 200，部分更新 |
 | `DELETE /api/v1/instances/{id}?history=retain\|purge` | 200，删除结果 |
 
-创建字段：`name`（非空，至多 128 字节，唯一）、`controller_url`（HTTP(S) 根 URL）、`secret`（默认空，至多 4096 字节，不含 CR/LF）、`enabled`（默认 true）、`collect_enabled`（默认 false，显式启用后台采集）。不接受用户提供 ID、URL userinfo、基路径、query、fragment 或任意未知字段。
+创建字段：`name`（非空，至多 128 字节，未删除实例间唯一）、`controller_url`（HTTP(S) 根 URL）、`secret`（默认空，至多 4096 字节，不含 CR/LF）、`enabled`（默认 true）、`collect_enabled`（默认 false，显式启用后台采集）。不接受用户提供 ID、URL userinfo、基路径、query、fragment 或任意未知字段。
 
 PATCH 允许上述字段；省略 Secret 保留原值，`"secret":""` 清空。禁用、重命名离线实例无需 DNS 可用；更换 URL/Secret 时重新校验网络策略。任何成功修改会取消旧 generation 的 HTTP/WS 请求；持久化失败恢复此前配置的新 generation。实例和对应审计在同一事务提交后才发布到注册中心。
 
@@ -55,9 +57,15 @@ PATCH 允许上述字段；省略 Secret 保留原值，`"secret":""` 清空。�
 }
 ```
 
-Controller URL 与 Secret 不会出现在响应中。时间使用 UTC Unix 毫秒。找不到实例返回 404，同名冲突 409，输入/网络策略/删除选项无效返回 400，持久化失败 500。
+常规列表、详情和变更响应不包含 Controller URL 或 Secret。仅管理员编辑配置接口返回 `controller_url`；Secret 永不回传。时间使用 UTC Unix 毫秒。找不到实例返回 404，同名冲突 409，输入/网络策略/删除选项无效返回 400，持久化失败 500。
 
-`retain` 创建删除墓碑并移除 URL/密文，保留实例 ID 和名称供后续历史表关联；名称仍占用。`purge` 物理删除。P1 中所有历史表通过外键关联，purge 会级联清理；retain 保留无凭据墓碑及历史，单管理员仍可按 ID 查询。未指定选项拒绝删除。主动 `/test` 已实现只读版本探测，详见末尾说明。状态与历史接口见下文。
+`retain` 创建删除墓碑并移除 URL/密文，保留实例 ID 和名称供后续历史表关联；名称不再占用，可以重新新增；新实例分配新 UUID，不继承旧历史。`purge` 物理删除。P1 中所有历史表通过外键关联，purge 会级联清理；retain 保留无凭据墓碑及历史，单管理员仍可按 ID 查询。未指定选项拒绝删除。主动 `/test` 已实现只读版本探测，详见末尾说明。状态与历史接口见下文。
+
+`POST /api/v1/instances/test` 要求 Session、CSRF 和同源校验，接受 `instance_id?`、`controller_url?`、`secret?`。指定实例时省略字段沿用已保存配置（包括密钥）；`secret: ""` 明确测试无密钥连接。未指定实例时必须提供 URL。沿用 Gateway 地址和端口策略，包含 DNS 与拨号检查，最多 5 秒，只读取 `/version`。成功返回 `reachable/version`；失败 502 `controller_unavailable`，不回显上游错误。测试写审计但不修改注册表、generation、凭据或历史。
+
+前端对启用状态的新增先测试再提交，失败不创建实例；以停用状态新增可跳过连接测试。编辑中的测试仅验证当前表单，保存是独立操作。前端采用 POST/PATCH/DELETE 的提交结果更新列表，旧轮询不得覆盖变更，列表刷新失败不得解释为写入失败。网络中断导致写响应未知时，提示先刷新确认结果，避免盲目重试。
+
+Schema 3 将名称唯一约束改为 `WHERE deleted_at_ms IS NULL` 的唯一索引。启动时通过事务重建父表并保留所有 UUID/凭据/历史引用；迁移期间暂关外键以避免级联删除，完成后恢复。旧二进制拒绝打开新 schema；恢复旧版需同时恢复迁移前备份。
 
 ## Mihomo 原生 Gateway
 

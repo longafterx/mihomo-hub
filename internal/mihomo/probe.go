@@ -13,7 +13,7 @@ import (
 
 var versionValue = regexp.MustCompile(`^[A-Za-z0-9._+\-]{1,128}$`)
 
-// Probe 只读取已注册 Controller 的 /version，不触发采集、配置修改或内核控制。
+// Probe 只读取指定 Controller 的 /version，不触发采集、配置修改或内核控制。
 func (p Policy) Probe(ctx context.Context, target, secret string) (string, error) {
 	u, err := p.Parse(target)
 	if err != nil {
