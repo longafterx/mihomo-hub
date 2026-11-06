@@ -76,7 +76,7 @@ Controller URL 与 Secret 不会出现在响应中。时间使用 UTC Unix 毫�
 
 编码后的路径（包括名称里的编码斜杠）、重复 Query 键与原始转义保持不变；拒绝路径遍历、坏转义、控制字符和客户端 `token` 参数。服务端注入 Bearer Secret；WS 的 token 仅存在于 Go 到 Controller 的请求中。
 
-只向上游传递必要的内容协商、条件查询和 WebSocket Header；浏览器 Cookie、Authorization、Origin、Forwarded/X-Forwarded-*、CSRF Header 不透传。上游 Set-Cookie、鉴权/转发/CORS Header 与 Trailer 被过滤。HTTP 重定向拒绝，不跟随，也不向浏览器泄漏 Location。响应设置 no-store。REST 原生体受大小限制并有界缓冲，NDJSON/SSE 的无限 HTTP 流不作为 P0 兼容目标，请使用 WS。
+只向上游传递必要的内容协商、条件查询和 WebSocket Header；浏览器 Cookie、Authorization、Origin、Forwarded/X-Forwarded-*、CSRF Header 不透传。上游 Set-Cookie、鉴权/转发/CORS Header 与 Trailer 被过滤。HTTP 重定向拒绝，不跟随，也不向浏览器泄漏 Location。响应设置 no-store；附加 CSP sandbox 禁止错误返回的上游 HTML 在平台同源执行脚本，原生状态、类型和正文不变。REST 原生体受大小限制并有界缓冲，NDJSON/SSE 的无限 HTTP 流不作为 P0 兼容目标，请使用 WS。
 
 WS 保持文字与二进制数据，按双向累计消息限制（含分片），同时限制连接数量。实例 generation 取消、注销、过期、进程退出关闭两端 socket；异常断线与超限按连接失败报告，不会伪造成功。
 

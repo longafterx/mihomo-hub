@@ -37,7 +37,7 @@ try:
 except subprocess.CalledProcessError:
     raise SystemExit('commit backend implementation before creating a release')
 # 只校验构建输入；用户尚未提交的设计笔记不会进入发布二进制。
-inputs = ['cmd', 'internal', 'migrations', 'queries', 'scripts', 'go.mod', 'go.sum', 'build/frontend.lock.yaml', 'Dockerfile']
+inputs = ['cmd', 'internal', 'migrations', 'queries', 'scripts', 'go.mod', 'go.sum', 'build/frontend.lock.yaml', 'Dockerfile', 'Dockerfile.release']
 if run(['git', 'status', '--porcelain', '--untracked-files=normal', '--', *inputs]):
     raise SystemExit('backend build inputs must be committed')
 epoch = int(os.environ.get('SOURCE_DATE_EPOCH') or run(['git', 'show', '-s', '--format=%ct', 'HEAD']))

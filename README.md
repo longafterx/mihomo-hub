@@ -30,14 +30,16 @@ sha256sum -c SHA256SUMS
 
 ## Docker Compose
 
-先完成上面的前端/发布构建，再构建镜像：
+先完成上面的前端/发布构建，再封装对应宿主架构的发布目录（arm64 主机改为 linux_arm64）：
 
 ```sh
-sh scripts/build-image.sh
+sh scripts/build-image.sh dist/mihomo-hub_0.3.0_linux_amd64
 docker compose run --rm -it mihomo-hub init
 docker compose up -d
 docker compose ps
 ```
+
+`sh scripts/build-image.sh` 不带目录时使用源码多阶段构建，适合 CI 或内存充足的构建机。低内存服务器推荐直接封装已验证的发布目录。
 
 Compose 将端口绑定 `127.0.0.1:8080`，UID/GID 65532，根文件系统只读，数据在 named volume。镜像为 scratch + Go 可执行文件 + CA/许可证，没有 Node/shell。内置 `healthcheck` 查询 `/readyz`。更改访问入口需设置 `MIHOMOHUB_PUBLIC_ORIGIN` 后重新创建容器。
 

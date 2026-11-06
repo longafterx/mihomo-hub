@@ -42,7 +42,7 @@ umask 077
 
 ## 容器与权限
 
-从锁定前端生成静态资源后执行 `sh scripts/build-image.sh`。`docker compose run --rm -it mihomo-hub init` 初始化同一个 named volume，再 `docker compose up -d`。镜像默认非 root 65532:65532；named volume 首次挂载使用镜像目录权限。bind mount 需预先由管理员创建 0700 目录并设置 `chown 65532:65532`。
+低内存机器推荐 `sh scripts/build-image.sh dist/mihomo-hub_0.3.0_linux_amd64` 封装已验证的对应架构发布目录，无需在目标机器编译。内存充足的构建机可从锁定前端生成静态资源后执行 `sh scripts/build-image.sh`，使用完整多阶段构建。`docker compose run --rm -it mihomo-hub init` 初始化同一个 named volume，再 `docker compose up -d`。镜像默认非 root 65532:65532；named volume 首次挂载使用镜像目录权限。bind mount 需预先由管理员创建 0700 目录并设置 `chown 65532:65532`。
 
 `docker compose exec mihomo-hub /mihomo-hub version` 核对版本；`docker compose exec mihomo-hub /mihomo-hub backup --output /var/lib/mihomo-hub/backups/新文件.db` 在线备份（先创建可写 backups 目录）。镜像没有 shell/curl，使用内置 `healthcheck`。将备份复制到受限宿主路径，主密钥独立保管。
 
