@@ -40,8 +40,19 @@ func (a *api) testDraft(c *gin.Context) {
 	}
 	policy := mihomo.Policy{AllowPublic: a.Config.Gateway.AllowPublicControllers, AllowedPorts: a.Config.Gateway.AllowedPorts}
 	invalidSecret := len(item.Secret) > 4096 || strings.ContainsAny(item.Secret, "\r\n")
-	if invalidSecret || policy.Validate(ctx, item.ControllerURL) != nil {
+	if invalidSecret {
 		serviceError(c, instance.ErrInvalid)
+		return
+	}
+	if err := policy.Validate(ctx, item.ControllerURL); err != nil {
+		switch {
+		case errors.Is(err, mihomo.ErrControllerDNS):
+			fail(c, http.StatusBadGateway, "controller_dns_failed", "controller DNS lookup failed")
+		case errors.Is(err, context.DeadlineExceeded):
+			fail(c, http.StatusBadGateway, "controller_timeout", "controller request timed out")
+		default:
+			serviceError(c, instance.ErrInvalid)
+		}
 		return
 	}
 	if err := a.Audit(ctx, "instance.test_draft", item.ID, "attempt"); err != nil {
@@ -51,7 +62,7 @@ func (a *api) testDraft(c *gin.Context) {
 	// 测试未保存的表单仅 GET /version，不创建实例或切换现有采集器。
 	version, err := policy.Probe(ctx, item.ControllerURL, item.Secret)
 	if err != nil {
-		fail(c, http.StatusBadGateway, "controller_unavailable", "Controller version probe failed")
+		probeError(c, err)
 		return
 	}
 	respond(c, http.StatusOK, gin.H{"reachable": true, "version": version})
@@ -77,8 +88,18 @@ func (a *api) probe(c *gin.Context) {
 	}
 	version, err := (mihomo.Policy{AllowPublic: a.Config.Gateway.AllowPublicControllers, AllowedPorts: a.Config.Gateway.AllowedPorts}).Probe(ctx, item.ControllerURL, item.Secret)
 	if err != nil {
-		fail(c, http.StatusBadGateway, "controller_unavailable", "Controller version probe failed")
+		probeError(c, err)
 		return
 	}
 	respond(c, http.StatusOK, gin.H{"reachable": true, "version": version})
+}
+
+func probeError(c *gin.Context, err error) {
+	// 只允许经过脱敏的固定原因进入 API；原始网络错误可能包含敏感 URL。
+	var diagnostic *mihomo.ProbeError
+	if errors.As(err, &diagnostic) {
+		fail(c, http.StatusBadGateway, diagnostic.Code, diagnostic.Error())
+		return
+	}
+	fail(c, http.StatusBadGateway, "controller_unavailable", "Controller version probe failed")
 }

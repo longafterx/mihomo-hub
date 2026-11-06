@@ -18,6 +18,9 @@ type Resolver interface {
 	LookupNetIP(context.Context, string, string) ([]netip.Addr, error)
 }
 
+// ErrControllerDNS 区分主机解析失败与地址策略拒绝，不携带原始 DNS 错误内容。
+var ErrControllerDNS = errors.New("controller DNS lookup failed")
+
 type Policy struct {
 	AllowPublic  bool
 	AllowedPorts []int
@@ -129,7 +132,10 @@ func (p Policy) resolve(ctx context.Context, host string) ([]netip.Addr, error) 
 		}
 		ips, err := resolver.LookupNetIP(ctx, "ip", host)
 		if err != nil {
-			return nil, errors.New("controller DNS lookup failed")
+			if ctx.Err() != nil {
+				return nil, ctx.Err()
+			}
+			return nil, ErrControllerDNS
 		}
 		addresses = ips
 	}

@@ -6,12 +6,55 @@ import (
 	"bytes"
 	"encoding/json"
 	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"github.com/longafterx/mihomo-hub/internal/instance"
 	"github.com/longafterx/mihomo-hub/internal/storage"
 	"github.com/longafterx/mihomo-hub/internal/testutil/fakemihomo"
 )
+
+func TestDraftProbeFailureCodes(t *testing.T) {
+	h := setup(t)
+	for _, tc := range []struct {
+		name       string
+		status     int
+		body, code string
+	}{
+		{"no listener", 0, "", "controller_connection_refused"},
+		{"authentication", 401, "private response body", "controller_auth_failed"},
+		{"wrong service", 404, "private response body", "controller_http_error"},
+		{"invalid JSON", 200, "private response body", "controller_invalid_response"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(tc.status); w.Write([]byte(tc.body)) }))
+			defer server.Close()
+			if tc.status == 0 {
+				server.Close()
+			}
+			body, err := json.Marshal(map[string]string{"controller_url": server.URL})
+			if err != nil {
+				t.Fatal(err)
+			}
+			resp, data := h.request("POST", "/api/v1/instances/test", string(body), true)
+			requireStatus(t, resp, http.StatusBadGateway)
+			var envelope struct {
+				Error struct {
+					Code string `json:"code"`
+				} `json:"error"`
+			}
+			if err := json.Unmarshal(data, &envelope); err != nil {
+				t.Fatal(err)
+			}
+			if envelope.Error.Code != tc.code {
+				t.Fatalf("want %s, got %s", tc.code, data)
+			}
+			if bytes.Contains(data, []byte("private response body")) {
+				t.Fatal("upstream response leaked")
+			}
+		})
+	}
+}
 
 func TestInstanceEditorConfigAndDraftProbe(t *testing.T) {
 	h := setup(t)

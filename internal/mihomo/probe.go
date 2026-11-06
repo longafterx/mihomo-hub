@@ -3,7 +3,6 @@ package mihomo
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"io"
 	"net/http"
 	"regexp"
@@ -34,25 +33,33 @@ func (p Policy) Probe(ctx context.Context, target, secret string) (string, error
 	}
 	response, err := client.Do(request)
 	if err != nil {
-		return "", errors.New("controller unavailable")
+		return "", probeConnectionError(err)
 	}
 	defer response.Body.Close()
-	if response.StatusCode != http.StatusOK {
-		return "", errors.New("controller rejected probe")
+	switch {
+	case response.StatusCode == http.StatusUnauthorized || response.StatusCode == http.StatusForbidden:
+		return "", probeFailure("auth_failed", "controller authentication failed")
+	case response.StatusCode >= 300 && response.StatusCode < 400:
+		return "", probeFailure("redirected", "controller redirected the version request")
+	case response.StatusCode != http.StatusOK:
+		return "", probeFailure("http_error", "controller returned an unexpected HTTP status")
 	}
 	body, err := io.ReadAll(io.LimitReader(response.Body, 65537))
-	if err != nil || len(body) > 65536 {
-		return "", errors.New("invalid version response")
+	if err != nil {
+		return "", probeConnectionError(err)
+	}
+	if len(body) > 65536 {
+		return "", probeFailure("invalid_response", "invalid version response")
 	}
 	var value struct {
 		Version string `json:"version"`
 	}
 	if err := json.Unmarshal(body, &value); err != nil || !versionValue.MatchString(value.Version) {
-		return "", errors.New("invalid version response")
+		return "", probeFailure("invalid_response", "invalid version response")
 	}
 	// 平台只返回严格版本字段，永不回显上游错误体、认证头或地址。
 	if secret != "" && strings.Contains(value.Version, secret) {
-		return "", errors.New("invalid version response")
+		return "", probeFailure("invalid_response", "invalid version response")
 	}
 	return value.Version, nil
 }

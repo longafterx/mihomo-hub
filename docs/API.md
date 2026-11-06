@@ -61,7 +61,9 @@ PATCH 允许上述字段；省略 Secret 保留原值，`"secret":""` 清空。�
 
 `retain` 创建删除墓碑并移除 URL/密文，保留实例 ID 和名称供后续历史表关联；名称不再占用，可以重新新增；新实例分配新 UUID，不继承旧历史。`purge` 物理删除。P1 中所有历史表通过外键关联，purge 会级联清理；retain 保留无凭据墓碑及历史，单管理员仍可按 ID 查询。未指定选项拒绝删除。主动 `/test` 已实现只读版本探测，详见末尾说明。状态与历史接口见下文。
 
-`POST /api/v1/instances/test` 要求 Session、CSRF 和同源校验，接受 `instance_id?`、`controller_url?`、`secret?`。指定实例时省略字段沿用已保存配置（包括密钥）；`secret: ""` 明确测试无密钥连接。未指定实例时必须提供 URL。沿用 Gateway 地址和端口策略，包含 DNS 与拨号检查，最多 5 秒，只读取 `/version`。成功返回 `reachable/version`；失败 502 `controller_unavailable`，不回显上游错误。测试写审计但不修改注册表、generation、凭据或历史。
+`POST /api/v1/instances/test` 要求 Session、CSRF 和同源校验，接受 `instance_id?`、`controller_url?`、`secret?`。指定实例时省略字段沿用已保存配置（包括密钥）；`secret: ""` 明确测试无密钥连接。未指定实例时必须提供 URL。沿用 Gateway 地址和端口策略，包含 DNS 与拨号检查，最多 5 秒，只读取 `/version`。成功返回 `reachable/version`；失败 502，按原因返回 `controller_connection_refused`、`controller_timeout`、`controller_auth_failed`、`controller_dns_failed`、`controller_tls_failed`、`controller_redirected`、`controller_http_error`、`controller_invalid_response` 或 `controller_unavailable`，不回显上游错误。测试写审计但不修改注册表、generation、凭据或历史。
+
+前端地址表单只要求 IP/主机与端口（默认 9090），新增自动使用 HTTP，编辑拆分已有地址并保留已有 HTTP/HTTPS 协议；底层 API 继续使用 controller_url，浏览器运行 Endpoint 不变。
 
 前端对启用状态的新增先测试再提交，失败不创建实例；以停用状态新增可跳过连接测试。编辑中的测试仅验证当前表单，保存是独立操作。前端采用 POST/PATCH/DELETE 的提交结果更新列表，旧轮询不得覆盖变更，列表刷新失败不得解释为写入失败。网络中断导致写响应未知时，提示先刷新确认结果，避免盲目重试。
 
