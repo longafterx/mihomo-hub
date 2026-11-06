@@ -16,7 +16,7 @@ cp config.example.yaml config.local.yaml
 ./dist/mihomo-hub serve --config config.local.yaml
 ```
 
-打开 `http://127.0.0.1:8080/login`，在实例管理页面添加 Controller，选择启用采集。全局选择器切换运行实例；历史页面可查单实例或全部实例。`init` 通过交互终端隐藏输入密码（至少 12 字节），不接受密码参数或环境变量，不覆盖已有账号。默认仅监听本机。
+打开 `http://127.0.0.1:8080/login`，在实例管理页面添加 Controller，选择启用采集。全局选择器切换运行实例；历史页面可查单实例或全部实例。`init` 通过交互终端隐藏输入密码（至少 8 字节），不接受密码参数或环境变量，不覆盖已有账号。默认仅监听本机。
 
 正式版本包使用下面的脚本写入真实版本元信息、生成 Linux amd64/arm64 包、SHA256SUMS、CycloneDX 依赖清单和第三方许可证：
 

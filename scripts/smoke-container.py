@@ -21,7 +21,7 @@ environment=dict(os.environ)
 if args.remote: environment['DOCKER_HOST']='ssh://'+args.remote
 name='mihomohub-smoke-'+uuid.uuid4().hex[:12]
 volume=name+'-data'
-password='container-smoke-fixture-only'
+password='12345678'
 tunnel=None
 
 def docker(*arguments, **kwargs):

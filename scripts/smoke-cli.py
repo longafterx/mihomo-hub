@@ -41,7 +41,7 @@ with tempfile.TemporaryDirectory(prefix="mihomohub-cli-") as directory:
         f'security:\n  master_key_file: "{root / "master.key"}"\n'
     )
     environment = {key: value for key, value in os.environ.items() if not key.startswith("MIHOMOHUB_")}
-    fixture_password = "cli-smoke-fixture-only"
+    fixture_password = "12345678"
     master, slave = pty.openpty()
     initializer = subprocess.Popen(
         [str(binary), "init", "--config", str(config)],

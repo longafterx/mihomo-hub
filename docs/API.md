@@ -12,6 +12,8 @@
 | `POST /api/v1/auth/logout` | Session + CSRF | 撤销会话并断开其 WS，清除 Cookie |
 | `GET /api/v1/meta` | Session | 后端/前端版本、API/schema 版本与构建信息 |
 
+管理员密码是 MihomoHub 网页登录密码，与实例 Controller Secret 独立；初始化要求 8–1024 字节，不强制大小写、数字或符号组合。现有密码哈希保持兼容。
+
 Cookie 名为 `mihomohub_session`，Path=/，SameSite=Strict，HTTPS Origin 下 Secure。只保存 Session ID 的 SHA-256 哈希；每次成功登录生成新 Session 并撤销本浏览器旧 Session。最多 1024 活跃 Session、两个并行密码验证；按物理 IP 限制每分钟 10 次登录（含成功）。
 
 所有平台写请求（登录除外）同时要求 Cookie、`X-CSRF-Token` 和同源 Origin/Referer；登录也要求同源 Origin/Referer。CLI 需手动设置 `Origin`。WS 严格要求 Origin，不能仅用 Referer。所有写请求按 Session 限制每分钟 120 次。

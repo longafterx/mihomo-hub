@@ -121,7 +121,8 @@ func initialize(ctx context.Context, c config.Config, username string) error {
 	if _, err := admins.Admin(ctx); err == nil {
 		return errors.New("administrator already initialized")
 	}
-	fmt.Fprint(os.Stderr, "Admin password (at least 12 bytes): ")
+	fmt.Fprintln(os.Stderr, "设置 MihomoHub 网页登录密码，与 Controller Secret 无关。")
+	fmt.Fprintf(os.Stderr, "Admin password (at least %d bytes): ", auth.MinPasswordBytes)
 	password, err := term.ReadPassword(int(os.Stdin.Fd()))
 	fmt.Fprintln(os.Stderr)
 	if err != nil {
