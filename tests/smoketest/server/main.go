@@ -86,9 +86,9 @@ func run() error {
 			return err
 		}
 
-		// 浏览器测试固定写入上一个完整分钟，避免等待墙上时钟跨桶。
+		// 夹具写入五分钟前的完整分钟，确保与实时采集隔开，跨分钟也能验证孤立点。
 		engine := telemetry.New(telemetry.Cursor{InstanceID: item.ID}, 5*time.Second)
-		at := time.Now().UTC().Truncate(time.Minute).Add(-time.Minute).UnixMilli()
+		at := time.Now().UTC().Truncate(time.Minute).Add(-5 * time.Minute).UnixMilli()
 		for sample := range 2 {
 			upload, download := int64(sample*(i+1)*10000), int64(sample*(i+1)*20000)
 			// 多个维度各有不同流量，供排行、搜索和排序的浏览器回归使用。

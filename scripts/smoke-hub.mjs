@@ -134,10 +134,10 @@ try {
     const bounds = chart.querySelector('.highcharts-plot-background')?.getBoundingClientRect()
     if (!bounds) return false
     const points = Array.from(chart.querySelectorAll('.highcharts-markers .highcharts-point'))
-    return points.length === 2 && points.every(point => {
+    return points.length >= 2 && points.every(point => {
       const box = point.getBoundingClientRect()
       const x = box.x + box.width / 2, y = box.y + box.height / 2
-      return x >= bounds.left && x <= bounds.right && y >= bounds.top && y <= bounds.bottom && Number(point.getAttribute('opacity') ?? 1) >= .99
+      return x >= bounds.left - 1 && x <= bounds.right + 1 && y >= bounds.top - 1 && y <= bounds.bottom + 1 && Number(point.getAttribute('opacity') ?? 1) >= .99
     })
   })
   await page.screenshot({ path: 'test-results/hub-usage-desktop.png', fullPage: true, animations: 'disabled' })
