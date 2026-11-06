@@ -1,0 +1,37 @@
+server:
+  listen: 127.0.0.1:8080
+  public_origin: http://127.0.0.1:8080
+  # Development only: override the embedded Hub static UI.
+  static_dir: ""
+database:
+  path: data/mihomo-hub.db
+  busy_timeout_ms: 5000
+security:
+  master_key_file: data/secrets/master.key
+  session_hours: 12
+gateway:
+  allow_public_controllers: false
+  # Empty permits any TCP port, still subject to IP policy. Restrict in deployment.
+  allowed_ports: []
+  allow_runtime_writes: true
+  request_timeout_seconds: 30
+  max_body_bytes: 1048576
+  max_response_bytes: 16777216
+  max_ws_message_bytes: 16777216
+  max_websockets: 128
+log:
+  level: info
+collector:
+  max_instances: 32
+  max_connections: 10000
+  queue_capacity: 64
+  batch_size: 32
+  flush_interval_ms: 250
+  snapshot_timeout_seconds: 15
+  max_snapshot_gap_ms: 5000
+  reconnect_min_ms: 1000
+  reconnect_max_ms: 60000
+retention:
+  connections_days: 14
+  minute_stats_days: 60
+  hourly_stats_days: 365

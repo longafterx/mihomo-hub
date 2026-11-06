@@ -1,0 +1,14 @@
+**
+!go.mod
+!go.sum
+!cmd/
+!cmd/**
+!internal/
+!internal/**
+!migrations/
+!migrations/**
+!build/
+!build/frontend.lock.yaml
+!build/notices/
+!build/notices/**
+!Dockerfile

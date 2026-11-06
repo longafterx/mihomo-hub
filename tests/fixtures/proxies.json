@@ -1,0 +1,1 @@
+{"proxies":{"GLOBAL":{"name":"GLOBAL","type":"Selector","now":"测试策略","all":["测试策略","DIRECT"],"history":[],"udp":true},"测试策略":{"name":"测试策略","type":"Selector","now":"DIRECT","all":["DIRECT","REJECT"],"history":[],"udp":true},"DIRECT":{"name":"DIRECT","type":"Direct","history":[],"udp":true},"REJECT":{"name":"REJECT","type":"Reject","history":[],"udp":true}}}

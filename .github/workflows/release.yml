@@ -1,0 +1,97 @@
+name: release-validation
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: backend
+          fetch-depth: 0
+      - name: Read immutable frontend ref
+        id: frontend
+        working-directory: backend
+        run: |
+          python3 - <<'PY'
+          import os, re
+          from pathlib import Path
+          lock=Path('build/frontend.lock.yaml').read_text()
+          ref=re.search(r'^ref: "([a-f0-9]{40})"$',lock,re.M)[1]
+          repository=re.search(r'^repository: https://github.com/(.+)\.git$',lock,re.M)[1]
+          with open(os.environ['GITHUB_OUTPUT'],'a') as output:
+            output.write(f'ref={ref}\nrepository={repository}\n')
+            version=os.environ['GITHUB_REF_NAME'][1:] if os.environ['GITHUB_REF'].startswith('refs/tags/v') else '0.3.0'
+            output.write(f'version={version}\n')
+          PY
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ steps.frontend.outputs.repository }}
+          ref: ${{ steps.frontend.outputs.ref }}
+          path: frontend
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.34.1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.19.0
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+      - name: Build the locked Hub UI
+        working-directory: backend
+        run: sh scripts/build-frontend.sh ../frontend
+      - name: Frontend validation
+        working-directory: frontend
+        run: |
+          pnpm --filter @metacubexd/ui typecheck
+          pnpm --filter @metacubexd/ui test:unit
+          pnpm --filter @metacubexd/ui exec playwright install --with-deps chromium
+      - name: Backend validation
+        working-directory: backend
+        run: |
+          test -z "$(gofmt -l cmd internal migrations tests)"
+          go vet -tags=integration,frontend ./...
+          go test -race -tags=integration,frontend ./... -timeout=180s
+          sh scripts/generate-sql.sh
+          git diff --exit-code -- internal/storage/generated
+          test -z "$(git ls-files --others --exclude-standard internal/storage/generated)"
+          python3 scripts/smoke-cli.py
+          MIHOMOHUB_EMBED_SMOKE=1 node scripts/smoke-hub.mjs ../frontend
+      - name: Build Linux amd64 and arm64 releases
+        working-directory: backend
+        run: |
+          sh scripts/build-release.sh --prepared --frontend ../frontend --version "${GITHUB_REF_NAME#v}"
+        if: startsWith(github.ref, 'refs/tags/v')
+      - name: Build manual validation artifacts
+        if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
+        working-directory: backend
+        run: sh scripts/build-release.sh --prepared --frontend ../frontend
+      - uses: docker/setup-buildx-action@v3
+      - name: Build both container platforms without publishing
+        working-directory: backend
+        run: |
+          ref='${{ steps.frontend.outputs.ref }}'
+          docker buildx build --platform linux/amd64,linux/arm64 --build-arg "VERSION=${{ steps.frontend.outputs.version }}" --build-arg "BACKEND_COMMIT=$GITHUB_SHA" --build-arg "FRONTEND_COMMIT=$ref" --provenance=true --sbom=true --output type=oci,dest=dist/mihomo-hub-image.oci.tar .
+          sha256sum dist/mihomo-hub-image.oci.tar >> dist/SHA256SUMS
+      - name: Build and exercise a local container
+        working-directory: backend
+        run: |
+          MIHOMOHUB_VERSION="${{ steps.frontend.outputs.version }}" sh scripts/build-image.sh
+          python3 scripts/smoke-container.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mihomo-hub-release-candidate
+          path: |
+            backend/dist/*.tar.gz
+            backend/dist/*.oci.tar
+            backend/dist/SHA256SUMS
+            backend/test-results/
+          retention-days: 14

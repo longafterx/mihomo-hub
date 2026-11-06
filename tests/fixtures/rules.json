@@ -1,0 +1,1 @@
+{"rules":[{"type":"DomainSuffix","payload":"example.com","proxy":"测试策略","size":1},{"type":"Match","payload":"","proxy":"DIRECT","size":1}]}

@@ -1,0 +1,23 @@
+name: backend
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Format
+        run: test -z "$(gofmt -l cmd internal migrations tests)"
+      - run: go vet -tags=integration ./...
+      - run: go test ./...
+      - run: go test -race -tags=integration ./... -timeout=120s
+      - run: sh scripts/generate-sql.sh
+      - run: git diff --exit-code -- internal/storage/generated
+      - run: test -z "$(git ls-files --others --exclude-standard internal/storage/generated)"
+      - run: CGO_ENABLED=0 go build -trimpath -o dist/mihomo-hub ./cmd/mihomo-hub
+      - run: python3 scripts/smoke-cli.py

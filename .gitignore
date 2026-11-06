@@ -1,0 +1,13 @@
+/data/
+/dist/
+/coverage.out
+/config.local.yaml
+/node_modules/
+/test-results/
+*.db
+*.db-shm
+*.db-wal
+*.key
+__pycache__/
+/internal/web/dist/
+/build/notices/
