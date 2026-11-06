@@ -84,8 +84,8 @@ jobs:
       - name: Build and exercise a local container
         working-directory: backend
         run: |
-          MIHOMOHUB_VERSION="${{ steps.frontend.outputs.version }}" sh scripts/build-image.sh
-          python3 scripts/smoke-container.py
+          sh scripts/build-image.sh "dist/mihomo-hub_${{ steps.frontend.outputs.version }}_linux_amd64"
+          python3 scripts/smoke-container.py --image "mihomo-hub:${{ steps.frontend.outputs.version }}"
       - uses: actions/upload-artifact@v4
         with:
           name: mihomo-hub-release-candidate
