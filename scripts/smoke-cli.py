@@ -27,7 +27,7 @@ with tempfile.TemporaryDirectory(prefix="mihomohub-cli-") as directory:
     else:
         subprocess.run(["go", "build", "-o", str(binary), "./cmd/mihomo-hub"], check=True)
     version = json.loads(subprocess.check_output([str(binary), "version"]))
-    assert version["schema_version"] == 3
+    assert version["schema_version"] == 4
     if supplied:
         assert version["frontend_embedded"] is True
     with socket.socket() as listener:
@@ -102,7 +102,7 @@ with tempfile.TemporaryDirectory(prefix="mihomohub-cli-") as directory:
         client = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
         request = urllib.request.Request(
             origin + "/api/v1/auth/login",
-            data=json.dumps({"username": "admin", "password": fixture_password}).encode(),
+            data=json.dumps({"password": fixture_password}).encode(),
             headers={"Origin": origin, "Content-Type": "application/json"},
         )
         with client.open(request, timeout=5) as response:

@@ -51,7 +51,6 @@ try {
     observed.push(ws.url())
   })
   await page.goto(`${url}/login`)
-  await page.locator('input[name="username"]').fill('admin')
   await page.locator('input[name="password"]').fill('p0-smoke-fixture-only')
   await page.getByRole('button', { name: '登录', exact: true }).click()
   await page.waitForURL(u => u.pathname === '/')

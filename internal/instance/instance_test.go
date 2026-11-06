@@ -51,21 +51,21 @@ func TestRegistryLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	disabled := false
-	if _, err := s.Update(t.Context(), item.ID, instance.Patch{Enabled: &disabled}); err != nil {
+	if _, err := s.Update(t.Context(), item.ID, instance.Patch{Name: stringPointer("renamed")}); err != nil {
 		t.Fatal(err)
 	}
 	if previous.Err() == nil {
 		t.Fatal("old generation still alive")
 	}
-	if _, _, err := s.Acquire(item.ID); !errors.Is(err, instance.ErrDisabled) {
-		t.Fatalf("disabled acquire = %v", err)
+	if _, err := s.Update(t.Context(), item.ID, instance.Patch{Enabled: &disabled}); !errors.Is(err, instance.ErrInvalid) {
+		t.Fatalf("disabled request accepted: %v", err)
 	}
 	enabled := true
 	if _, err := s.Update(t.Context(), item.ID, instance.Patch{Enabled: &enabled}); err != nil {
 		t.Fatal(err)
 	}
 	repo.fail = true
-	if _, err := s.Update(t.Context(), item.ID, instance.Patch{Enabled: &disabled}); err == nil {
+	if _, err := s.Update(t.Context(), item.ID, instance.Patch{Name: stringPointer("renamed")}); err == nil {
 		t.Fatal("failed database write reported success")
 	}
 	if _, _, err := s.Acquire(item.ID); err != nil {
@@ -81,3 +81,5 @@ func TestRegistryLifecycle(t *testing.T) {
 		t.Fatal("deleted instance still routable")
 	}
 }
+
+func stringPointer(value string) *string { return &value }

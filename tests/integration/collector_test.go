@@ -103,10 +103,6 @@ func counter(t *testing.T, h *harness, id string) int64 {
 	}
 	return n
 }
-func enable(h *harness, id string) {
-	resp, _ := h.request("PATCH", "/api/v1/instances/"+id, `{"collect_enabled":true}`, true)
-	requireStatus(h.t, resp, 200)
-}
 func status(h *harness, id string) string {
 	_, data := h.request("GET", "/api/v1/instances/"+id+"/status", "", true)
 	var v struct {
@@ -128,9 +124,6 @@ func TestCollectorsIndependentRecoveryAndReset(t *testing.T) {
 	})
 	a, b := newController(t), newController(t)
 	ids := []string{h.register(a.server.URL, "collector-fixture", "collector-a"), h.register(b.server.URL, "collector-fixture", "collector-b")}
-	for _, id := range ids {
-		enable(h, id)
-	}
 	eventually(t, "two background collectors online", func() bool { return status(h, ids[0]) == "online" && status(h, ids[1]) == "online" })
 	// No browser or browser WebSocket is created anywhere in this test.
 	a.set(120, 60)
@@ -163,11 +156,13 @@ func TestCollectorsIndependentRecoveryAndReset(t *testing.T) {
 	if got := counter(t, h, ids[0]); got != 30 {
 		t.Fatal("reset spike", got)
 	}
-	resp, _ := h.request("PATCH", "/api/v1/instances/"+ids[0], `{"enabled":false}`, true)
+	resp, _ := h.request("DELETE", "/api/v1/instances/"+ids[0]+"?history=retain", "", true)
 	requireStatus(t, resp, 200)
-	eventually(t, "disabled worker closed", func() bool { return a.active.Load() == 0 })
-	if status(h, ids[0]) != "disabled" {
-		t.Fatal("disabled status")
+	eventually(t, "removed worker closed", func() bool { return a.active.Load() == 0 })
+	resp, _ = h.request("GET", "/api/v1/instances/"+ids[0]+"/status", "", true)
+	requireStatus(t, resp, 404)
+	if got := counter(t, h, ids[0]); got != 30 {
+		t.Fatalf("retained history = %d", got)
 	}
 	resp, _ = h.request("DELETE", "/api/v1/instances/"+ids[1]+"?history=retain", "", true)
 	requireStatus(t, resp, 200)
@@ -182,7 +177,6 @@ func TestCollectorProcessRestartAndURLGeneration(t *testing.T) {
 	})
 	a, b := newController(t), newController(t)
 	id := h.register(a.server.URL, "collector-fixture", "restart-test")
-	enable(h, id)
 	eventually(t, "baseline", func() bool { return status(h, id) == "online" })
 	a.set(120, 60)
 	eventually(t, "delta", func() bool { return counter(t, h, id) == 20 })
@@ -212,7 +206,7 @@ func TestCollectorProcessRestartAndURLGeneration(t *testing.T) {
 	if got := counter(t, h, id); got != 20 {
 		t.Fatal("process restart spike", got)
 	}
-	resp, data := h.request("POST", "/api/v1/auth/login", `{"username":"admin","password":"`+password+`"}`, false)
+	resp, data := h.request("POST", "/api/v1/auth/login", `{"password":"`+password+`"}`, false)
 	requireStatus(t, resp, 200)
 	for _, cookie := range resp.Cookies() {
 		if cookie.Name == auth.CookieName {
@@ -299,7 +293,6 @@ func TestCollectorRejectsInvalidAndOversizedSnapshots(t *testing.T) {
 			f.data = []byte(tt.body)
 			f.mu.Unlock()
 			id := h.register(f.server.URL, "collector-fixture", tt.name)
-			enable(h, id)
 			eventually(t, "invalid protocol rejected", func() bool {
 				_, data := h.request("GET", "/api/v1/instances/"+id+"/status", "", true)
 				var v struct {
@@ -329,7 +322,6 @@ func TestCollectorStorageFailureReportsRecoveryGap(t *testing.T) {
 	})
 	f := newController(t)
 	id := h.register(f.server.URL, "collector-fixture", "write-failure")
-	enable(h, id)
 	eventually(t, "baseline online", func() bool { return status(h, id) == "online" })
 	if _, err := h.app.DB.Exec(`CREATE TRIGGER fail_telemetry BEFORE UPDATE ON collector_cursor BEGIN SELECT RAISE(ABORT,'injected failure'); END`); err != nil {
 		t.Fatal(err)

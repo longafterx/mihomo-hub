@@ -156,16 +156,13 @@ func (s *Service) validate(ctx context.Context, item Instance) error {
 }
 
 func (s *Service) Create(ctx context.Context, input Create) (Instance, error) {
+	if rejectsManagement(input.Enabled, input.CollectEnabled) {
+		return Instance{}, ErrInvalid
+	}
 	now := time.Now().UTC().UnixMilli()
 	item := Instance{
 		ID: uuid.NewString(), Name: input.Name, ControllerURL: input.ControllerURL,
-		Secret: input.Secret, Enabled: true, CreatedAtMS: now, UpdatedAtMS: now, Generation: 1,
-	}
-	if input.Enabled != nil {
-		item.Enabled = *input.Enabled
-	}
-	if input.CollectEnabled != nil {
-		item.CollectEnabled = *input.CollectEnabled
+		Secret: input.Secret, Enabled: true, CollectEnabled: true, CreatedAtMS: now, UpdatedAtMS: now, Generation: 1,
 	}
 	if err := s.validate(ctx, item); err != nil {
 		return Instance{}, err
@@ -189,6 +186,9 @@ func (s *Service) block(id string) {
 }
 
 func (s *Service) Update(ctx context.Context, id string, patch Patch) (Instance, error) {
+	if rejectsManagement(patch.Enabled, patch.CollectEnabled) {
+		return Instance{}, ErrInvalid
+	}
 	s.writes.Lock()
 	defer s.writes.Unlock()
 	previous, err := s.Get(id)
@@ -205,13 +205,8 @@ func (s *Service) Update(ctx context.Context, id string, patch Patch) (Instance,
 	if patch.Secret != nil {
 		item.Secret = *patch.Secret
 	}
-	if patch.Enabled != nil {
-		item.Enabled = *patch.Enabled
-	}
-	if patch.CollectEnabled != nil {
-		item.CollectEnabled = *patch.CollectEnabled
-	}
-	// Disabling or renaming an offline controller must not require a working DNS lookup.
+	item.Enabled, item.CollectEnabled = true, true
+	// 离线实例仅改名时不依赖 DNS；修改连接参数才重新校验目标。
 	if patch.ControllerURL != nil || patch.Secret != nil {
 		if err := s.validate(ctx, item); err != nil {
 			return Instance{}, err
@@ -229,6 +224,11 @@ func (s *Service) Update(ctx context.Context, id string, patch Patch) (Instance,
 	}
 	s.publish(item)
 	return s.Get(id)
+}
+
+func rejectsManagement(enabled, collect *bool) bool {
+	// 接入 Hub 即启用管理和采集；兼容旧请求中的 true，但拒绝通过 API 关闭。
+	return (enabled != nil && !*enabled) || (collect != nil && !*collect)
 }
 
 func (s *Service) Delete(ctx context.Context, id, history string) error {

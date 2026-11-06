@@ -209,13 +209,13 @@ func (a *api) login(c *gin.Context) {
 		return
 	}
 	var input struct {
-		Username string `json:"username"`
+		Username string `json:"username"` // 兼容旧客户端字段，不参与单管理员密码验证。
 		Password string `json:"password"`
 	}
 	if !decode(c, &input, 8192) {
 		return
 	}
-	token, session, err := a.Auth.Login(c.Request.Context(), input.Username, input.Password)
+	token, session, err := a.Auth.Login(c.Request.Context(), input.Password)
 	if err != nil {
 		status := http.StatusUnauthorized
 		code := "invalid_credentials"
@@ -244,7 +244,7 @@ func (a *api) login(c *gin.Context) {
 func (a *api) me(c *gin.Context) { respond(c, http.StatusOK, sessionView(getSession(c))) }
 
 func sessionView(s *auth.Session) gin.H {
-	return gin.H{"username": s.Username, "csrf_token": s.CSRF, "expires_at_ms": s.ExpiresAt.UTC().UnixMilli()}
+	return gin.H{"csrf_token": s.CSRF, "expires_at_ms": s.ExpiresAt.UTC().UnixMilli()}
 }
 
 func (a *api) logout(c *gin.Context) {

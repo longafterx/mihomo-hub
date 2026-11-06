@@ -40,7 +40,6 @@ func run() error {
 	flags := flag.NewFlagSet(command, flag.ContinueOnError)
 	configPath := flags.String("config", "", "optional YAML configuration file")
 	output := flags.String("output", "", "new SQLite backup destination")
-	username := flags.String("username", "admin", "administrator username for init")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
@@ -65,7 +64,7 @@ func run() error {
 	defer stop()
 	switch command {
 	case "init":
-		return initialize(ctx, c, *username)
+		return initialize(ctx, c)
 	case "backup":
 		if *output == "" {
 			return errors.New("backup requires --output pointing to a new file")
@@ -105,10 +104,7 @@ func run() error {
 	}
 }
 
-func initialize(ctx context.Context, c config.Config, username string) error {
-	if strings.TrimSpace(username) == "" || len(username) > 128 {
-		return errors.New("invalid administrator username")
-	}
+func initialize(ctx context.Context, c config.Config) error {
 	if !term.IsTerminal(int(os.Stdin.Fd())) {
 		return errors.New("init requires an interactive terminal; passwords are never accepted in argv or environment")
 	}
@@ -151,7 +147,7 @@ func initialize(ctx context.Context, c config.Config, username string) error {
 	if _, err := storage.LoadKey(c.Security.MasterKeyFile); err != nil {
 		return err
 	}
-	if err := admins.Initialize(ctx, auth.Admin{Username: username, PasswordHash: hash}); err != nil {
+	if err := admins.Initialize(ctx, auth.Admin{Username: "admin", PasswordHash: hash}); err != nil {
 		return err
 	}
 	slog.Info("administrator initialized; store the master key backup separately from the database")

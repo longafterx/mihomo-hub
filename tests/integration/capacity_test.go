@@ -53,7 +53,6 @@ func TestCapacity10x1000(t *testing.T) {
 		fakes = append(fakes, f)
 		id := h.register(f.server.URL, "collector-fixture", fmt.Sprintf("capacity-%d", i))
 		ids = append(ids, id)
-		enable(h, id)
 	}
 	eventually(t, "ten initial snapshots", func() bool {
 		for _, id := range ids {

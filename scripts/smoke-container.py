@@ -77,7 +77,7 @@ try:
                 if time.monotonic()>deadline: raise
                 time.sleep(0.2)
     def login():
-        return json.loads(request('/api/v1/auth/login',{'username':'admin','password':password})[1])['data']['csrf_token']
+        return json.loads(request('/api/v1/auth/login',{'password':password})[1])['data']['csrf_token']
     ready()
     info=json.loads(docker('inspect',name))[0]
     assert info['Config']['User']=='65532:65532'
@@ -86,13 +86,14 @@ try:
     version=json.loads(docker('exec',name,'/mihomo-hub','version'))
     assert version['frontend_embedded'] is True
     assert len(version['frontend_commit'])==40
-    assert version['schema_version']==3
+    assert version['schema_version']==4
     assert '__NUXT' in request('/')[1].decode()
     assert 'no-store' in request('/')[2]['Cache-Control']
     assert 'unregister' in request('/sw.js')[1].decode()
     token=login()
-    item=json.loads(request('/api/v1/instances',{'name':'container-persisted','controller_url':'http://127.0.0.1:1','secret':'container-controller-fixture','enabled':False,'collect_enabled':False},csrf=token)[1])['data']
+    item=json.loads(request('/api/v1/instances',{'name':'container-persisted','controller_url':'http://127.0.0.1:1','secret':'container-controller-fixture'},csrf=token)[1])['data']
     assert item['has_secret'] and 'secret' not in item
+    assert item['enabled'] and item['collect_enabled']
     docker('exec',name,'/mihomo-hub','backup','--output','/var/lib/mihomo-hub/fixture-backup.db')
     docker('restart','-t','10',name)
     ready()
@@ -100,9 +101,10 @@ try:
     token=login()
     items=json.loads(request('/api/v1/instances')[1])['data']
     assert len(items)==1 and items[0]['id']==item['id'] and items[0]['has_secret']
+    assert items[0]['enabled'] and items[0]['collect_enabled']
     # 保留历史不再占用名称；同名重建按新身份保存，且允许明确不配置 Secret。
     request('/api/v1/instances/'+item['id']+'?history=retain',method='DELETE',csrf=token)
-    replacement=json.loads(request('/api/v1/instances',{'name':'container-persisted','controller_url':'http://127.0.0.1:1','secret':'','enabled':False,'collect_enabled':False},csrf=token)[1])['data']
+    replacement=json.loads(request('/api/v1/instances',{'name':'container-persisted','controller_url':'http://127.0.0.1:1','secret':''},csrf=token)[1])['data']
     assert replacement['id']!=item['id'] and not replacement['has_secret']
     # scratch 镜像中只有 Go 可执行文件、CA 与许可证，没有 Node/shell。
     assert subprocess.run(['docker','exec',name,'/usr/bin/node','--version'],env=environment,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL).returncode!=0

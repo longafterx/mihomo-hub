@@ -22,9 +22,11 @@ import (
 
 	"github.com/coder/websocket"
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"github.com/longafterx/mihomo-hub/internal/app"
 	"github.com/longafterx/mihomo-hub/internal/auth"
 	"github.com/longafterx/mihomo-hub/internal/config"
+	"github.com/longafterx/mihomo-hub/internal/instance"
 	"github.com/longafterx/mihomo-hub/internal/storage"
 	"github.com/longafterx/mihomo-hub/internal/testutil/fakemihomo"
 	"github.com/longafterx/mihomo-hub/tests/fixtures"
@@ -95,8 +97,28 @@ func setupConfig(t *testing.T, customize func(*config.Config)) *harness {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := (storage.Admins{DB: db}).Initialize(t.Context(), auth.Admin{Username: "admin", PasswordHash: passwordHash}); err != nil {
+	if err := (storage.Admins{DB: db}).Initialize(t.Context(), auth.Admin{Username: "legacy-admin-name", PasswordHash: passwordHash}); err != nil {
 		t.Fatal(err)
+	}
+	// Gateway 协议夹具直接播种未采集记录，避免后台连接干扰流数量与透传断言。
+	// 产品注册只能走 Create；后台采集测试另行通过 HTTP 注册并验证自动启动。
+	aead, err := storage.LoadKey(c.Security.MasterKeyFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	repo := storage.Instances{DB: db, AEAD: aead}
+	fakes := []*fakemihomo.Fake{}
+	ids := []string{}
+	for i := range 2 {
+		fake := fakemihomo.New(fmt.Sprintf("mock-%d", i), fmt.Sprintf("server-secret-%d-+$&", i))
+		t.Cleanup(fake.Close)
+		item := instance.Instance{ID: uuid.NewString(), Name: fake.Label, ControllerURL: fake.Server.URL,
+			Secret: fake.Secret, Enabled: true, Generation: 1}
+		if err := repo.Save(t.Context(), item, "fixture.create"); err != nil {
+			t.Fatal(err)
+		}
+		fakes = append(fakes, fake)
+		ids = append(ids, item.ID)
 	}
 	if err := db.Close(); err != nil {
 		t.Fatal(err)
@@ -106,7 +128,7 @@ func setupConfig(t *testing.T, customize func(*config.Config)) *harness {
 		t.Fatal(err)
 	}
 	c.Server.PublicOrigin = "http://" + listener.Addr().String()
-	h := &harness{t: t, ids: []string{}, fakes: []*fakemihomo.Fake{}, logs: &lockedBuffer{}, config: c}
+	h := &harness{t: t, ids: ids, fakes: fakes, logs: &lockedBuffer{}, config: c}
 	logger := slog.New(slog.NewJSONHandler(h.logs, &slog.HandlerOptions{Level: slog.LevelDebug}))
 	h.app, err = app.Open(t.Context(), c, logger)
 	if err != nil {
@@ -123,11 +145,8 @@ func setupConfig(t *testing.T, customize func(*config.Config)) *harness {
 			t.Error(err)
 		}
 		h.server.Close()
-		for _, f := range h.fakes {
-			f.Close()
-		}
 	})
-	resp, data := h.request("POST", "/api/v1/auth/login", `{"username":"admin","password":"`+password+`"}`, false)
+	resp, data := h.request("POST", "/api/v1/auth/login", `{"password":"`+password+`"}`, false)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("login: %d %s", resp.StatusCode, data)
 	}
@@ -147,11 +166,6 @@ func setupConfig(t *testing.T, customize func(*config.Config)) *harness {
 	h.csrf = login.Data.CSRF
 	if h.cookie == nil || h.csrf == "" {
 		t.Fatal("missing cookie/CSRF")
-	}
-	for i := range 2 {
-		fake := fakemihomo.New(fmt.Sprintf("mock-%d", i), fmt.Sprintf("server-secret-%d-+$&", i))
-		h.fakes = append(h.fakes, fake)
-		h.ids = append(h.ids, h.register(fake.Server.URL, fake.Secret, fmt.Sprintf("mock-%d", i)))
 	}
 	return h
 }
@@ -310,9 +324,11 @@ func TestRegistryAndRESTContract(t *testing.T) {
 		}
 	}
 	resp, _ = h.request("PATCH", "/api/v1/instances/"+h.ids[0], `{"enabled":false,"name":"renamed"}`, true)
+	requireStatus(t, resp, http.StatusBadRequest)
+	resp, _ = h.request("PATCH", "/api/v1/instances/"+h.ids[0], `{"name":"renamed"}`, true)
 	requireStatus(t, resp, http.StatusOK)
 	resp, _ = h.request("GET", "/mihomo/"+h.ids[0]+"/version", "", true)
-	requireStatus(t, resp, http.StatusForbidden)
+	requireStatus(t, resp, http.StatusOK)
 	resp, _ = h.request("GET", "/mihomo/"+h.ids[1]+"/version", "", true)
 	requireStatus(t, resp, http.StatusOK)
 	for i, history := range []string{"retain", "purge"} {
@@ -480,7 +496,7 @@ func TestWebSocketStreamsAndClose(t *testing.T) {
 }
 
 func TestActiveStreamRevocation(t *testing.T) {
-	for _, action := range []string{"disable", "delete", "credentials", "logout", "shutdown"} {
+	for _, action := range []string{"rename", "delete", "credentials", "logout", "shutdown"} {
 		t.Run(action, func(t *testing.T) {
 			h := setup(t)
 			conn, _, err := h.ws(h.ids[0], "/logs", h.server.URL, true)
@@ -494,8 +510,8 @@ func TestActiveStreamRevocation(t *testing.T) {
 				t.Fatal(err)
 			}
 			switch action {
-			case "disable":
-				resp, _ := h.request("PATCH", "/api/v1/instances/"+h.ids[0], `{"enabled":false}`, true)
+			case "rename":
+				resp, _ := h.request("PATCH", "/api/v1/instances/"+h.ids[0], `{"name":"renamed"}`, true)
 				requireStatus(t, resp, 200)
 			case "delete":
 				resp, _ := h.request("DELETE", "/api/v1/instances/"+h.ids[0]+"?history=purge", "", true)
@@ -519,6 +535,11 @@ func TestActiveStreamRevocation(t *testing.T) {
 			if ctx.Err() != nil {
 				t.Fatal("revocation did not close browser websocket promptly")
 			}
+			if action == "rename" {
+				// 改名后的新代际会自动采集；先移出 Hub，再检查所有上游流已收敛。
+				resp, _ := h.request("DELETE", "/api/v1/instances/"+h.ids[0]+"?history=retain", "", true)
+				requireStatus(t, resp, 200)
+			}
 			waitInactive(t, h.fakes[0])
 		})
 	}
@@ -528,6 +549,11 @@ func TestUpstreamStatusRedirectAndLimits(t *testing.T) {
 	h := setup(t)
 	var calls atomic.Int64
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/connections" {
+			// 仅统计被测 Gateway 请求，不把注册后自动启动的采集请求算作重试。
+			http.Error(w, "not a collector fixture", http.StatusNotFound)
+			return
+		}
 		calls.Add(1)
 		switch r.URL.Query().Get("case") {
 		case "redirect":
@@ -697,7 +723,7 @@ func TestCSRFLoginLimitAndRedaction(t *testing.T) {
 	resp, _ = h.request("GET", "/mihomo/"+h.ids[0]+"/version?private=never-log-this", "", true)
 	requireStatus(t, resp, 401)
 	for range 10 {
-		resp, _ = h.request("POST", "/api/v1/auth/login", `{"username":"admin","password":"not-the-password"}`, false)
+		resp, _ = h.request("POST", "/api/v1/auth/login", `{"password":"not-the-password"}`, false)
 	}
 	requireStatus(t, resp, 429)
 	logs := h.logs.String()
@@ -755,7 +781,7 @@ func TestLoginResourcesAndStaticBoundary(t *testing.T) {
 	for _, path := range []string{"/login", "/login.js", "/login.css", "/sw.js", "/"} {
 		resp, data := h.request("GET", path, "", false)
 		requireStatus(t, resp, 200)
-		if path == "/login" && !bytes.Contains(data, []byte(`method="post"`)) {
+		if path == "/login" && (bytes.Contains(data, []byte(`name="username"`)) || !bytes.Contains(data, []byte(`name="password"`)) || !bytes.Contains(data, []byte(`method="post"`))) {
 			t.Fatal("login must not fall back to GET credentials")
 		}
 	}
@@ -783,8 +809,81 @@ func TestRegisteredControllerProbe(t *testing.T) {
 	request.Header.Set("Origin", "https://evil.invalid")
 	response, _ = h.do(request)
 	requireStatus(t, response, 403)
-	response, _ = h.request("PATCH", "/api/v1/instances/"+h.ids[0], `{"enabled":false}`, true)
+	response, _ = h.request("DELETE", "/api/v1/instances/"+h.ids[0]+"?history=retain", "", true)
 	requireStatus(t, response, 200)
 	response, _ = h.request("POST", path, "", true)
-	requireStatus(t, response, 403)
+	requireStatus(t, response, 404)
+}
+
+func TestPasswordOnlyLogin(t *testing.T) {
+	h := setup(t)
+	for _, tt := range []struct {
+		name, body string
+		status     int
+	}{
+		{name: "password only", body: `{"password":"` + password + `"}`, status: 200},
+		{name: "legacy username ignored", body: `{"username":"unused-name","password":"` + password + `"}`, status: 200},
+		{name: "wrong password", body: `{"password":"wrong"}`, status: 401},
+		{name: "missing password", body: `{}`, status: 401},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			resp, body := h.request("POST", "/api/v1/auth/login", tt.body, false)
+			requireStatus(t, resp, tt.status)
+			if bytes.Contains(body, []byte(`"username"`)) {
+				t.Fatal("login exposes unused username")
+			}
+		})
+	}
+	resp, body := h.request("GET", "/api/v1/auth/me", "", true)
+	requireStatus(t, resp, 200)
+	if bytes.Contains(body, []byte(`"username"`)) || !bytes.Contains(body, []byte(`"csrf_token"`)) {
+		t.Fatal("unexpected session response")
+	}
+}
+
+func TestInstancesAlwaysManaged(t *testing.T) {
+	h := setup(t)
+	id := h.register(h.fakes[0].Server.URL, h.fakes[0].Secret, "managed")
+	snapshot := func() instance.Instance {
+		var item instance.Instance
+		err := h.app.DB.QueryRow(
+			"SELECT name,enabled,collect_enabled,generation FROM instances WHERE id=?", id,
+		).Scan(&item.Name, &item.Enabled, &item.CollectEnabled, &item.Generation)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return item
+	}
+	current := snapshot()
+	if !current.Enabled || !current.CollectEnabled {
+		t.Fatal("create did not enable management and collection")
+	}
+	for _, field := range []string{"enabled", "collect_enabled"} {
+		t.Run(field, func(t *testing.T) {
+			resp, _ := h.request(
+				"POST",
+				"/api/v1/instances",
+				`{"name":"rejected","controller_url":"http://127.0.0.1:9090","`+field+`":false}`,
+				true,
+			)
+			requireStatus(t, resp, 400)
+			resp, _ = h.request(
+				"PATCH",
+				"/api/v1/instances/"+id,
+				`{"name":"must-not-change","`+field+`":false}`,
+				true,
+			)
+			requireStatus(t, resp, 400)
+			got := snapshot()
+			unchanged := got.Generation == current.Generation && got.Name == current.Name
+			managed := got.Enabled && got.CollectEnabled
+			if !unchanged || !managed {
+				t.Fatal("rejected patch changed instance")
+			}
+		})
+	}
+	var count int
+	if err := h.app.DB.QueryRow("SELECT COUNT(*) FROM instances WHERE name='rejected'").Scan(&count); err != nil || count != 0 {
+		t.Fatalf("rejected creation persisted: count=%d err=%v", count, err)
+	}
 }

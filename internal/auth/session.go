@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
-	"crypto/subtle"
 	"errors"
 	"sync"
 	"time"
@@ -49,7 +48,7 @@ var (
 	ErrBusy        = errors.New("authentication capacity exceeded")
 )
 
-func (s *Service) Login(ctx context.Context, username, password string) (string, *Session, error) {
+func (s *Service) Login(ctx context.Context, password string) (string, *Session, error) {
 	select {
 	case s.logins <- struct{}{}:
 		defer func() { <-s.logins }()
@@ -60,9 +59,8 @@ func (s *Service) Login(ctx context.Context, username, password string) (string,
 	if err != nil {
 		return "", nil, err
 	}
-	validPassword := VerifyPassword(admin.PasswordHash, password)
-	validUsername := subtle.ConstantTimeCompare([]byte(username), []byte(admin.Username)) == 1
-	if !validPassword || !validUsername {
+	// 单管理员只验证密码；历史用户名仅留作内部会话和审计标识。
+	if !VerifyPassword(admin.PasswordHash, password) {
 		return "", nil, ErrCredentials
 	}
 	token := rand.Text()

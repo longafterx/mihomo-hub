@@ -137,7 +137,7 @@ func run() error {
 			} `json:"data"`
 		}
 		if err := request("POST", "/api/v1/auth/login", map[string]string{
-			"username": "live-test",
+
 			"password": password,
 		}, &out); err != nil {
 			return err

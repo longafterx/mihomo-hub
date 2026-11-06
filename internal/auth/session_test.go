@@ -20,14 +20,11 @@ func TestSessionLifecycle(t *testing.T) {
 	}
 	root, cancel := context.WithCancel(t.Context())
 	defer cancel()
-	s := auth.New(root, accounts{admin: auth.Admin{Username: "admin", PasswordHash: hash}}, time.Hour)
-	if _, _, err := s.Login(t.Context(), "admin", "wrong"); !errors.Is(err, auth.ErrCredentials) {
+	s := auth.New(root, accounts{admin: auth.Admin{Username: "legacy-custom-identity", PasswordHash: hash}}, time.Hour)
+	if _, _, err := s.Login(t.Context(), "wrong"); !errors.Is(err, auth.ErrCredentials) {
 		t.Fatalf("bad password: %v", err)
 	}
-	if _, _, err := s.Login(t.Context(), "wrong", "test-password-with-length"); !errors.Is(err, auth.ErrCredentials) {
-		t.Fatalf("bad username: %v", err)
-	}
-	token, session, err := s.Login(t.Context(), "admin", "test-password-with-length")
+	token, session, err := s.Login(t.Context(), "test-password-with-length")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -44,8 +41,8 @@ func TestSessionLifecycle(t *testing.T) {
 	if _, ok := s.Lookup(token); ok || session.Context.Err() == nil {
 		t.Fatal("logout did not revoke session and cancel active streams")
 	}
-	expired := auth.New(root, accounts{admin: auth.Admin{Username: "admin", PasswordHash: hash}}, -time.Second)
-	token, _, err = expired.Login(t.Context(), "admin", "test-password-with-length")
+	expired := auth.New(root, accounts{admin: auth.Admin{Username: "legacy-custom-identity", PasswordHash: hash}}, -time.Second)
+	token, _, err = expired.Login(t.Context(), "test-password-with-length")
 	if err != nil {
 		t.Fatal(err)
 	}

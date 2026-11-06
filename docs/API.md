@@ -7,12 +7,12 @@
 | 方法和路径 | 权限 | 行为 |
 |---|---|---|
 | `GET /login` | 公开 | 后端提供的最小登录页，独立于 XD 源码 |
-| `POST /api/v1/auth/login` | 同源 | JSON `username/password`；设置 HttpOnly Session Cookie |
-| `GET /api/v1/auth/me` | Session | `username/csrf_token/expires_at_ms` |
+| `POST /api/v1/auth/login` | 同源 | JSON `password`（兼容并忽略旧 `username`）；设置 HttpOnly Session Cookie |
+| `GET /api/v1/auth/me` | Session | `csrf_token/expires_at_ms` |
 | `POST /api/v1/auth/logout` | Session + CSRF | 撤销会话并断开其 WS，清除 Cookie |
 | `GET /api/v1/meta` | Session | 后端/前端版本、API/schema 版本与构建信息 |
 
-管理员密码是 MihomoHub 网页登录密码，与实例 Controller Secret 独立；初始化要求 8–1024 字节，不强制大小写、数字或符号组合。现有密码哈希保持兼容。
+管理员密码是 MihomoHub 网页登录密码，与实例 Controller Secret 独立；初始化要求 8–1024 字节，不强制大小写、数字或符号组合。现有密码哈希保持兼容，无需重新初始化；登录页及 CLI 初始化不再要求用户名，数据库保留旧用户名仅作内部标识。
 
 Cookie 名为 `mihomohub_session`，Path=/，SameSite=Strict，HTTPS Origin 下 Secure。只保存 Session ID 的 SHA-256 哈希；每次成功登录生成新 Session 并撤销本浏览器旧 Session。最多 1024 活跃 Session、两个并行密码验证；按物理 IP 限制每分钟 10 次登录（含成功）。
 
@@ -32,9 +32,9 @@ Cookie 名为 `mihomohub_session`，Path=/，SameSite=Strict，HTTPS Origin 下 
 | `PATCH /api/v1/instances/{id}` | 200，部分更新 |
 | `DELETE /api/v1/instances/{id}?history=retain\|purge` | 200，删除结果 |
 
-创建字段：`name`（非空，至多 128 字节，未删除实例间唯一）、`controller_url`（HTTP(S) 根 URL）、`secret`（默认空，至多 4096 字节，不含 CR/LF）、`enabled`（默认 true）、`collect_enabled`（默认 false，显式启用后台采集）。不接受用户提供 ID、URL userinfo、基路径、query、fragment 或任意未知字段。
+创建字段：`name`（非空，至多 128 字节，未删除实例间唯一）、`controller_url`（HTTP(S) 根 URL）、`secret`（默认空，至多 4096 字节，不含 CR/LF）。接入即启用管理和后台采集；`enabled` 与 `collect_enabled` 可省略，兼容旧客户端显式 `true`，显式 `false` 返回 400 `invalid_instance`。不接受用户提供 ID、URL userinfo、基路径、query、fragment 或任意未知字段。
 
-PATCH 允许上述字段；省略 Secret 保留原值，`"secret":""` 清空。禁用、重命名离线实例无需 DNS 可用；更换 URL/Secret 时重新校验网络策略。任何成功修改会取消旧 generation 的 HTTP/WS 请求；持久化失败恢复此前配置的新 generation。实例和对应审计在同一事务提交后才发布到注册中心。
+PATCH 允许上述字段，同样禁止关闭管理或采集；省略 Secret 保留原值，`"secret":""` 清空。重命名离线实例无需 DNS 可用；更换 URL/Secret 时重新校验网络策略。任何成功修改会取消旧 generation 的 HTTP/WS 请求；持久化失败恢复此前配置的新 generation。实例和对应审计在同一事务提交后才发布到注册中心。
 
 返回示意：
 
@@ -46,8 +46,8 @@ PATCH 允许上述字段；省略 Secret 保留原值，`"secret":""` 清空。�
     "gateway_url": "/mihomo/<UUID>",
     "has_secret": true,
     "enabled": true,
-    "collect_enabled": false,
-    "collector_status": "disabled",
+    "collect_enabled": true,
+    "collector_status": "connecting",
     "last_seen_at_ms": null,
     "created_at_ms": 1793923200000,
     "updated_at_ms": 1793923200000
@@ -65,13 +65,17 @@ PATCH 允许上述字段；省略 Secret 保留原值，`"secret":""` 清空。�
 
 前端地址表单只要求 IP/主机与端口（默认 9090），新增自动使用 HTTP，编辑拆分已有地址并保留已有 HTTP/HTTPS 协议；底层 API 继续使用 controller_url，浏览器运行 Endpoint 不变。
 
-前端对启用状态的新增先测试再提交，失败不创建实例；以停用状态新增可跳过连接测试。编辑中的测试仅验证当前表单，保存是独立操作。前端采用 POST/PATCH/DELETE 的提交结果更新列表，旧轮询不得覆盖变更，列表刷新失败不得解释为写入失败。网络中断导致写响应未知时，提示先刷新确认结果，避免盲目重试。
+前端新增先测试再提交，失败不创建实例；新增、编辑与列表没有管理/采集开关。移出 Hub 使用删除并明确选择历史保留或清理。编辑中的测试仅验证当前表单，保存是独立操作。前端采用 POST/PATCH/DELETE 的提交结果更新列表，旧轮询不得覆盖变更，列表刷新失败不得解释为写入失败。网络中断导致写响应未知时，提示先刷新确认结果，避免盲目重试。
 
 Schema 3 将名称唯一约束改为 `WHERE deleted_at_ms IS NULL` 的唯一索引。启动时通过事务重建父表并保留所有 UUID/凭据/历史引用；迁移期间暂关外键以避免级联删除，完成后恢复。旧二进制拒绝打开新 schema；恢复旧版需同时恢复迁移前备份。
 
+Schema 4 将未删除实例统一设置为启用管理与采集，变更记录的 generation 加一；已启用记录、删除墓碑及历史表保持原状。旧版本恢复需使用升级前备份。
+
+顶部实例菜单将当前视图标为“显示中”，其他健康实例标为“采集中”，异常状态显示实际采集状态；顶部标签可直接切换。切换与页面关闭都不改变服务端采集。
+
 ## Mihomo 原生 Gateway
 
-前缀 `/mihomo/{UUID}`；请求只能访问已注册且启用实例。无 Session 401、不存在 404、禁用 403、非法路径/浏览器 token 参数 400、权限不足 403、上游超时 504、其他网关错误 502。上游自身的 4xx/5xx 作为原生响应透传。
+前缀 `/mihomo/{UUID}`；请求只能访问已注册实例，接入后统一启用。无 Session 401、不存在 404、禁用 403、非法路径/浏览器 token 参数 400、权限不足 403、上游超时 504、其他网关错误 502。上游自身的 4xx/5xx 作为原生响应透传。
 
 | 方法 | 路径 | 行为 |
 |---|---|---|

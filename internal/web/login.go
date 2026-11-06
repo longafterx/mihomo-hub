@@ -6,8 +6,7 @@ const loginHTML = `<!doctype html>
 <html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width">
 <title>MihomoHub 登录</title><link rel="stylesheet" href="/login.css">
 <main><span class="eyebrow">MIHOMOHUB</span><h1>登录控制台</h1><p>集中监控多台 Mihomo，查看运行状态与历史流量。</p>
-<form id="login" method="post" action="/api/v1/auth/login"><p><label>账号 <input name="username" autocomplete="username" required maxlength="128" autofocus></label></p>
-<p><label>密码 <input name="password" type="password" autocomplete="current-password" required></label></p>
+<form id="login" method="post" action="/api/v1/auth/login"><p><label>密码 <input name="password" type="password" autocomplete="current-password" required autofocus></label></p>
 <button type="submit">登录</button><p id="message" role="status"></p></form></main>
 <script src="/login.js" defer></script></html>`
 
@@ -20,7 +19,7 @@ const loginJS = `document.getElementById('login').addEventListener('submit', asy
   try {
     const response = await fetch('/api/v1/auth/login', {
       method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({username: form.username.value, password: form.password.value})
+      body: JSON.stringify({password: form.password.value})
     });
     form.password.value = '';
     const result = await response.json();
