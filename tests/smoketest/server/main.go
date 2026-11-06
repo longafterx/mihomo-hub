@@ -91,10 +91,18 @@ func run() error {
 		at := time.Now().UTC().Truncate(time.Minute).Add(-time.Minute).UnixMilli()
 		for sample := range 2 {
 			upload, download := int64(sample*(i+1)*10000), int64(sample*(i+1)*20000)
-			cu, cd := upload/2, download/2
-			connection := telemetry.Connection{ID: "shared-history", Upload: &cu, Download: &cd, Chains: []string{"DIRECT"}, Rule: "Domain"}
-			connection.Metadata.Host = "history.example"
-			batch, next, err := engine.Plan(telemetry.Snapshot{Upload: &upload, Download: &download, Connections: []telemetry.Connection{connection}}, at+int64(sample)*1000, telemetry.SourceID(fake.Server.URL), "")
+			// 多个维度各有不同流量，供排行、搜索和排序的浏览器回归使用。
+			connections := []telemetry.Connection{}
+			for index, host := range []string{"history.example", "build.example", "packages.example"} {
+				divisor := int64(2 << index)
+				cu, cd := upload/divisor, download/divisor
+				connection := telemetry.Connection{ID: fmt.Sprintf("history-%d", index), Upload: &cu, Download: &cd, Chains: []string{"DIRECT"}, Rule: "Domain"}
+				connection.Metadata.Host = host
+				connection.Metadata.SourceIP = fmt.Sprintf("192.168.1.%d", 10+index)
+				connection.Metadata.Process = []string{"browser", "builder", "updater"}[index]
+				connections = append(connections, connection)
+			}
+			batch, next, err := engine.Plan(telemetry.Snapshot{Upload: &upload, Download: &download, Connections: connections}, at+int64(sample)*1000, telemetry.SourceID(fake.Server.URL), "")
 			if err != nil {
 				return err
 			}
