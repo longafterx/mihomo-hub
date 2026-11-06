@@ -22,7 +22,8 @@ cp config.example.yaml config.local.yaml
 
 ```sh
 sh scripts/build-release.sh --frontend ../metacubexd --version 0.3.0
-sha256sum -c dist/SHA256SUMS
+cd dist
+sha256sum -c SHA256SUMS
 ```
 
 后端构建输入必须已提交；没有内嵌资源的普通 `go build` 是后端开发模式。`server.static_dir` 仅用于开发覆盖内嵌资源。`version` 显示内嵌状态、两个仓库 Commit 与 schema；正式包带可核对的 manifest。

@@ -109,6 +109,14 @@ with tempfile.TemporaryDirectory(prefix="mihomohub-cli-") as directory:
             assert response.status == 200
         with client.open(origin + "/api/v1/instances", timeout=2) as response:
             assert json.load(response)["data"] == []
+        if supplied:
+            with client.open(origin + "/", timeout=2) as response:
+                assert b"__NUXT" in response.read(), "release UI missing"
+            with client.open(origin + "/api/v1/meta", timeout=2) as response:
+                metadata = json.load(response)["data"]
+                assert metadata["frontend_embedded"] is True
+                assert metadata["frontend_commit"] == version["frontend_commit"]
+                assert metadata["backend_commit"] == version["backend_commit"]
         backup = root / "backup.db"
         subprocess.run([str(binary), "backup", "--config", str(config), "--output", str(backup)], check=True, env=environment, capture_output=True)
         with sqlite3.connect(backup) as restored:
