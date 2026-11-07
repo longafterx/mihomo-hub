@@ -15,6 +15,7 @@ gateway:
   allowed_ports: []
   allow_runtime_writes: true
   request_timeout_seconds: 30
+  maintenance_timeout_seconds: 180
   max_body_bytes: 1048576
   max_response_bytes: 16777216
   max_ws_message_bytes: 16777216

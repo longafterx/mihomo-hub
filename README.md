@@ -49,7 +49,11 @@ Compose 将端口绑定 `127.0.0.1:8080`，UID/GID 65532，根文件系统只读
 
 ## 数据与安全
 
-Controller Secret 用 AES-256-GCM 加密存储，浏览器 Endpoint 的 Secret 始终为空。登录 Session、Cookie/Origin、平台 CSRF、受限的 Controller 地址策略、DNS 拨号检查与 Gateway 方法白名单共同构成访问边界。单管理员模式，Session 随服务重启失效。Agent `/api/control/*` 返回 404；不管理远程 Mihomo 进程，不允许升级、重启和配置替换。
+Controller Secret 用 AES-256-GCM 加密存储，浏览器 Endpoint 的 Secret 始终为空。登录 Session、Cookie/Origin、平台 CSRF、受限的 Controller 地址策略、DNS 拨号检查与 Gateway 方法白名单共同构成访问边界。单管理员模式，Session 随服务重启失效。Agent `/api/control/*` 返回 404；不安装、升级或通过 systemd/SSH 管理远程进程。
+
+已支持通过 Controller 重载当前配置、重启 Mihomo、更新代理/规则 Provider、清理 DNS/Fake-IP 缓存、更新 Geo，以及修改运行端口、允许局域网、出口接口和 TUN。维护操作默认限时 180 秒，不自动重试；内核能力、下载来源和设备权限不足时明确报错。修改端口/TUN 是目标设备上的操作，Hub 本身无需额外网络权限。
+
+DNS 配置使用“设置 → 导入完整 YAML → 应用 DNS 并热加载”：Mihomo 原生 `PATCH /configs` 不支持 DNS 修改。导入仅保存完整配置，应用时合并 DNS 并加载整份 YAML，包含其中的代理、规则和端口。YAML 在服务端加密，删除实例时一并清除；不返回完整 YAML、不写入远程文件，重载/重启后恢复设备文件中的配置。外部修改配置后需重新导入。Schema 5 新增加密配置表，升级前请备份；回退需同时恢复旧数据库。决策详见 [ADR-009](docs/ADR/009-controller-maintenance.md)。
 
 主密钥须独立备份。在线数据库备份使用 `backup --output <新文件>`，不要运行中直接复制主 `.db`。恢复、迁移、降级拒绝与 systemd 部署见 [Runbook](docs/RUNBOOK.md)。域名、进程和源 IP 属于敏感历史，默认连接 14 天、分钟 60 天、小时 365 天；删除实例可明确保留或永久清理历史。
 
@@ -65,8 +69,9 @@ sh scripts/generate-sql.sh
 python3 scripts/smoke-cli.py
 MIHOMOHUB_EMBED_SMOKE=1 node scripts/smoke-hub.mjs ../metacubexd
 python3 scripts/smoke-container.py
+DOCKER_CONTEXT=desktop-linux env -u DOCKER_HOST node scripts/smoke-controls.mjs ../metacubexd
 ```
 
 前端执行 `pnpm --filter @metacubexd/ui typecheck` 与 `test:unit`。CI 校验 sqlc 生成一致性、竞态、内嵌 UI 浏览器流程、Linux 双架构与容器，不自动推送镜像或发布 Release。
 
-[API](docs/API.md) · [配置](docs/CONFIG.md) · [运维](docs/RUNBOOK.md) · [P0 验收](docs/P0-VERIFICATION.md) · [P1 验收](docs/P1-VERIFICATION.md) · [P2 验收](docs/P2-VERIFICATION.md) · [P3 验收](docs/P3-VERIFICATION.md) · [第三方许可](docs/THIRD-PARTY-NOTICES.md)
+[API](docs/API.md) · [配置](docs/CONFIG.md) · [运维](docs/RUNBOOK.md) · [P0 验收](docs/P0-VERIFICATION.md) · [P1 验收](docs/P1-VERIFICATION.md) · [P2 验收](docs/P2-VERIFICATION.md) · [P3 验收](docs/P3-VERIFICATION.md) · [Controller/DNS 验收](docs/CONTROLLER-CONTROL-VERIFICATION.md) · [第三方许可](docs/THIRD-PARTY-NOTICES.md)

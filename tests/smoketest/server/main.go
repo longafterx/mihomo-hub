@@ -12,6 +12,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -38,6 +39,7 @@ func main() {
 
 func run() error {
 	static := flag.String("static", "", "path to the unchanged XD static build")
+	localController := flag.String("local-controller", "", "optional loopback-only disposable Controller")
 	flag.Parse()
 	gin.SetMode(gin.ReleaseMode)
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -120,6 +122,18 @@ func run() error {
 	}
 	candidate := fakemihomo.New("candidate-no-secret", "")
 	defer candidate.Close()
+	localID := ""
+	if *localController != "" {
+		target, err := url.Parse(*localController)
+		if err != nil || target.Scheme != "http" || target.Hostname() != "127.0.0.1" {
+			return fmt.Errorf("local smoke controller must be an HTTP loopback URL")
+		}
+		item, err := registry.Create(ctx, instance.Create{Name: "local-real-mihomo", ControllerURL: *localController, Secret: "local-control-fixture-only"})
+		if err != nil {
+			return err
+		}
+		localID = item.ID
+	}
 
 	if err := db.Close(); err != nil {
 		return err
@@ -138,7 +152,7 @@ func run() error {
 	srv := &http.Server{Handler: a.Handler, ReadHeaderTimeout: 5 * time.Second, IdleTimeout: 60 * time.Second}
 	done := make(chan error, 1)
 	go func() { done <- srv.Serve(l) }()
-	if err := json.NewEncoder(os.Stdout).Encode(map[string]any{"url": c.Server.PublicOrigin, "ids": ids, "candidate_url": candidate.Server.URL}); err != nil {
+	if err := json.NewEncoder(os.Stdout).Encode(map[string]any{"url": c.Server.PublicOrigin, "ids": ids, "candidate_url": candidate.Server.URL, "local_id": localID}); err != nil {
 		return err
 	}
 	<-ctx.Done()

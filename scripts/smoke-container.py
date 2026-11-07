@@ -86,7 +86,7 @@ try:
     version=json.loads(docker('exec',name,'/mihomo-hub','version'))
     assert version['frontend_embedded'] is True
     assert len(version['frontend_commit'])==40
-    assert version['schema_version']==4
+    assert version['schema_version']==5
     assert '__NUXT' in request('/')[1].decode()
     assert 'no-store' in request('/')[2]['Cache-Control']
     assert 'unregister' in request('/sw.js')[1].decode()

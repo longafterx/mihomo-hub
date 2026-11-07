@@ -21,6 +21,9 @@ func TestLoad(t *testing.T) {
 		{name: "credentials in origin", yaml: "server:\n  public_origin: http://user:pass@localhost"},
 		{name: "zero limit", yaml: "gateway:\n  max_body_bytes: 0"},
 		{name: "bad port", yaml: "gateway:\n  allowed_ports: [65536]"},
+		{name: "maintenance defaults", yaml: "gateway:\n  maintenance_timeout_seconds: 180\n", ok: true},
+		{name: "zero maintenance timeout", yaml: "gateway:\n  maintenance_timeout_seconds: 0\n"},
+		{name: "excessive maintenance timeout", yaml: "gateway:\n  maintenance_timeout_seconds: 601\n"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "config.yaml")

@@ -13,8 +13,9 @@
 | `security.session_hours` | `12` | 1–168；进程重启撤销所有 Session |
 | `gateway.allow_public_controllers` | `false` | 显式开启后公网 Controller 仍必须 HTTPS |
 | `gateway.allowed_ports` | `[]` | 空列表允许任意合法 TCP 端口；仍受地址策略限制 |
-| `gateway.allow_runtime_writes` | `true` | false 时禁止 Gateway 写操作；平台实例管理仍允许管理员使用 |
-| `gateway.request_timeout_seconds` | `30` | 1–300；普通 REST 总时限；响应头上限 30 秒 |
+| `gateway.allow_runtime_writes` | `true` | false 时禁止 Gateway 写操作及 YAML 导入/DNS 应用；实例管理仍可用 |
+| `gateway.request_timeout_seconds` | `30` | 1–300；普通 REST 总时限 |
+| `gateway.maintenance_timeout_seconds` | `180` | 1–600；重载/重启、Provider/Geo 更新、缓存清理和 DNS 热加载总时限 |
 | `gateway.max_body_bytes` | `1048576` | 1–64 MiB；Gateway 和实例请求上限 |
 | `gateway.max_response_bytes` | `16777216` | 1–64 MiB；REST 有界缓冲，超限返回 502 |
 | `gateway.max_ws_message_bytes` | `16777216` | 1–64 MiB；双向限制，分片累计，超限断开 |
@@ -27,7 +28,7 @@
 
 监听非 loopback 地址须明确配置 `server.listen`。反向代理必须保留外部 `Host`，将 `server.public_origin` 设置为浏览器实际 HTTPS Origin，外部必须使用 TLS；Cookie 的 Secure 由该配置决定。Gin 不信任任何 `X-Forwarded-*`，限流使用物理连接 IP（反向代理后的用户共用其限流桶）；P0 暂不提供可信代理 CIDR 配置。
 
-服务端 `ReadHeaderTimeout=5s`、`ReadTimeout=30s`、`IdleTimeout=60s`、`MaxHeaderBytes=64KiB`。普通响应写截止时间 35 秒；WS 不采用普通 REST 总时限，空闲日志流可持续到 Session 过期，慢浏览器单次写操作最多等待 15 秒。Controller 连接建立与 TLS 握手各限 5 秒，每目标最大 32 条 HTTP/WS 连接。
+服务端 `ReadHeaderTimeout=5s`、`ReadTimeout=30s`、`IdleTimeout=60s`、`MaxHeaderBytes=64KiB`。平台普通响应写截止时间 35 秒；Gateway 使用对应请求总时限加 5 秒，DNS 应用使用维护总时限加 5 秒。上游响应头限时取两类时限的较大值，普通请求仍由自己的 context 限制。WS 不采用普通 REST 总时限，空闲日志流可持续到 Session 过期，慢浏览器单次写操作最多等待 15 秒。Controller 连接建立与 TLS 握手各限 5 秒，每目标最大 32 条 HTTP/WS 连接。
 
 ## P1 采集、写入与保留
 
@@ -54,7 +55,7 @@ Collector 使用与 Gateway 相同的地址策略、TLS 和 `max_ws_message_byte
 
 维护每分钟一次，在 5 秒预算内按每表每批至多 1000 行、每轮至多 20 批清理，然后被动 checkpoint。截止值以前才删除，边界记录保留。清理可能逐轮追赶积压；实际保留边界通过 Analytics 的 first_retained_* 返回。清理释放可复用页，不自动 VACUUM 压缩主文件。
 
-实例默认 collect_enabled=false，以显式选择采集；已有 P0 实例迁移不自动启用。
+接入实例即启用后台采集；Schema 4 已将未删除的存量实例统一启用管理与采集。
 
 ## 发布与容器
 

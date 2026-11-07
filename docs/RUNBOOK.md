@@ -1,6 +1,6 @@
 # MihomoHub 运维手册
 
-发布包包含内嵌 UI、版本清单与校验和。Controller 的安装、升级和重启不属于本平台职责。
+发布包包含内嵌 UI、版本清单与校验和。可通过 Controller API 主动重启 Mihomo；安装、升级、systemd/SSH 操作不属于本平台职责。
 
 ## 在线备份
 
@@ -38,7 +38,7 @@ umask 077
 3. 以服务用户在交互终端执行 `mihomo-hub init --config /etc/mihomo-hub/config.yaml`。不要把密码放入 shell 历史、环境变量、日志或配置文件。
 4. 安装本目录的 `mihomo-hub.service`，执行 `systemctl daemon-reload`、`systemctl enable --now mihomo-hub`。用 `journalctl -u mihomo-hub`、`/readyz` 和登录后 `/api/v1/system/status` 检查服务。
 
-服务单元启用只读系统目录、独立临时目录、无附加能力和 0077 umask；唯一持久可写目录是 `/var/lib/mihomo-hub`。默认账号没有远程内核控制能力。
+服务单元启用只读系统目录、独立临时目录、无附加能力和 0077 umask；唯一持久可写目录是 `/var/lib/mihomo-hub`。目标设备上的 TUN 权限由设备侧管理员配置；Hub 不安装提权助手。
 
 ## 容器与权限
 
@@ -61,11 +61,11 @@ location / {
     proxy_set_header Host $http_host;
     proxy_set_header Upgrade $http_upgrade;
     proxy_set_header Connection "upgrade";
-    proxy_read_timeout 75s;
+    proxy_read_timeout 610s;
 }
 ```
 
-保留原始 Origin、Cookie；不要让不可信客户端绕过代理直达服务端口。程序不会依据 `X-Forwarded-*` 信任客户端或推断 Origin。HTTPS public origin 会设置 Secure Cookie；浏览器时钟、主机名和端口需要一致。
+保留原始 Origin、Cookie；反向代理读取超时需覆盖维护操作时限，以上 610 秒覆盖 Hub 最大 600 秒设置，避免 Geo/Provider 下载或完整配置加载被提前截断。不要让不可信客户端绕过代理直达服务端口。程序不会依据 `X-Forwarded-*` 信任客户端或推断 Origin。HTTPS public origin 会设置 Secure Cookie；浏览器时钟、主机名和端口需要一致。
 
 ## 升级、回退与故障恢复
 

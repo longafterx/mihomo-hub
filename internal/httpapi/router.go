@@ -20,6 +20,7 @@ import (
 	"github.com/longafterx/mihomo-hub/internal/config"
 	"github.com/longafterx/mihomo-hub/internal/gateway"
 	"github.com/longafterx/mihomo-hub/internal/instance"
+	"github.com/longafterx/mihomo-hub/internal/runtimeconfig"
 	"github.com/longafterx/mihomo-hub/internal/storage"
 )
 
@@ -40,6 +41,7 @@ type Dependencies struct {
 	Analytics        analytics.Service
 	SystemStatus     func(context.Context) (any, error)
 	Collector        *collector.Manager
+	RuntimeConfig    *runtimeconfig.Service
 }
 
 type api struct {
@@ -96,6 +98,9 @@ func New(d Dependencies) *gin.Engine {
 	platform.POST("/instances/test", a.csrf, a.testDraft)
 	platform.GET("/instances/:id", a.get)
 	platform.GET("/instances/:id/config", a.editConfig)
+	platform.GET("/instances/:id/runtime-config", a.runtimeConfig)
+	platform.PUT("/instances/:id/runtime-config", a.csrf, a.importRuntimeConfig)
+	platform.PATCH("/instances/:id/runtime-config/dns", a.csrf, a.applyDNS)
 	platform.GET("/instances/:id/status", a.status)
 	platform.POST("/instances/:id/test", a.csrf, a.probe)
 	platform.PATCH("/instances/:id", a.csrf, a.update)

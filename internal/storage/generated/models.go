@@ -85,6 +85,14 @@ type ReadinessProbe struct {
 	Value int64
 }
 
+type RuntimeConfig struct {
+	InstanceID     string
+	ControllerUrl  string
+	YamlCiphertext []byte
+	Revision       int64
+	UpdatedAtMs    int64
+}
+
 type TrafficDimensionHour struct {
 	InstanceID    string
 	BucketMs      int64

@@ -354,7 +354,7 @@ func TestAuthenticationAndPermissionBoundary(t *testing.T) {
 		status                   int
 	}{
 		{name: "unknown instance", method: "GET", path: "/mihomo/unknown/version", status: 404},
-		{name: "dangerous restart", method: "POST", path: "/mihomo/" + h.ids[0] + "/restart", status: 403},
+		{name: "unknown maintenance", method: "POST", path: "/mihomo/" + h.ids[0] + "/restart/extra", status: 403},
 		{name: "dangerous upgrade", method: "POST", path: "/mihomo/" + h.ids[0] + "/upgrade", status: 403},
 		{name: "config replacement", method: "PUT", path: "/mihomo/" + h.ids[0] + "/configs", body: `{"payload":"danger"}`, status: 403},
 		{name: "secret patch", method: "PATCH", path: "/mihomo/" + h.ids[0] + "/configs", body: `{"secret":"hijack"}`, status: 403},

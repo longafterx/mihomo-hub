@@ -27,7 +27,7 @@ with tempfile.TemporaryDirectory(prefix="mihomohub-cli-") as directory:
     else:
         subprocess.run(["go", "build", "-o", str(binary), "./cmd/mihomo-hub"], check=True)
     version = json.loads(subprocess.check_output([str(binary), "version"]))
-    assert version["schema_version"] == 4
+    assert version["schema_version"] == 5
     if supplied:
         assert version["frontend_embedded"] is True
     with socket.socket() as listener:

@@ -70,6 +70,14 @@ func (f *Fake) serve(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("X-Mock-Instance", f.Label)
 	switch {
+	case r.Method == http.MethodPost && r.URL.Path == "/restart":
+		w.Write([]byte(`{"status":"ok"}`))
+	case r.Method == http.MethodPost && (r.URL.Path == "/configs/geo" || strings.HasPrefix(r.URL.Path, "/cache/")):
+		w.WriteHeader(http.StatusNoContent)
+	case r.Method == http.MethodPut && (r.URL.Path == "/configs" || strings.HasPrefix(r.URL.Path, "/providers/")):
+		w.WriteHeader(http.StatusNoContent)
+	case r.URL.Path == "/dns/query":
+		w.Write([]byte(`{"Answer":[{"data":"192.0.2.1"}]}`))
 	case r.Method == http.MethodPut && strings.HasPrefix(r.URL.Path, "/proxies/"):
 		var input struct {
 			Name string `json:"name"`

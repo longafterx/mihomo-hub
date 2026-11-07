@@ -29,14 +29,15 @@ type Config struct {
 		SessionHours  int    `yaml:"session_hours"`
 	} `yaml:"security"`
 	Gateway struct {
-		AllowPublicControllers bool  `yaml:"allow_public_controllers"`
-		AllowedPorts           []int `yaml:"allowed_ports"`
-		AllowRuntimeWrites     bool  `yaml:"allow_runtime_writes"`
-		RequestTimeoutSeconds  int   `yaml:"request_timeout_seconds"`
-		MaxBodyBytes           int64 `yaml:"max_body_bytes"`
-		MaxResponseBytes       int64 `yaml:"max_response_bytes"`
-		MaxWSMessageBytes      int64 `yaml:"max_ws_message_bytes"`
-		MaxWebSockets          int   `yaml:"max_websockets"`
+		AllowPublicControllers    bool  `yaml:"allow_public_controllers"`
+		AllowedPorts              []int `yaml:"allowed_ports"`
+		AllowRuntimeWrites        bool  `yaml:"allow_runtime_writes"`
+		RequestTimeoutSeconds     int   `yaml:"request_timeout_seconds"`
+		MaintenanceTimeoutSeconds int   `yaml:"maintenance_timeout_seconds"`
+		MaxBodyBytes              int64 `yaml:"max_body_bytes"`
+		MaxResponseBytes          int64 `yaml:"max_response_bytes"`
+		MaxWSMessageBytes         int64 `yaml:"max_ws_message_bytes"`
+		MaxWebSockets             int   `yaml:"max_websockets"`
 	} `yaml:"gateway"`
 	Log struct {
 		Level string `yaml:"level"`
@@ -70,6 +71,7 @@ func Default() Config {
 	c.Gateway.AllowedPorts = []int{}
 	c.Gateway.AllowRuntimeWrites = true
 	c.Gateway.RequestTimeoutSeconds = 30
+	c.Gateway.MaintenanceTimeoutSeconds = 180
 	c.Gateway.MaxBodyBytes = 1 << 20
 	c.Gateway.MaxResponseBytes = 16 << 20
 	c.Gateway.MaxWSMessageBytes = 16 << 20
@@ -147,8 +149,9 @@ func (c Config) Validate() error {
 	}
 	validSession := c.Security.SessionHours >= 1 && c.Security.SessionHours <= 168
 	validTimeout := c.Gateway.RequestTimeoutSeconds >= 1 && c.Gateway.RequestTimeoutSeconds <= 300
+	validMaintenance := c.Gateway.MaintenanceTimeoutSeconds >= 1 && c.Gateway.MaintenanceTimeoutSeconds <= 600
 	validBusy := c.Database.BusyTimeoutMS >= 1 && c.Database.BusyTimeoutMS <= 60000
-	if !validSession || !validTimeout || !validBusy {
+	if !validSession || !validTimeout || !validMaintenance || !validBusy {
 		return errors.New("session or timeout outside allowed range")
 	}
 	limits := []int64{c.Gateway.MaxBodyBytes, c.Gateway.MaxResponseBytes, c.Gateway.MaxWSMessageBytes}

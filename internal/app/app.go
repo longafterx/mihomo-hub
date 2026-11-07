@@ -18,6 +18,7 @@ import (
 	"github.com/longafterx/mihomo-hub/internal/httpapi"
 	"github.com/longafterx/mihomo-hub/internal/instance"
 	"github.com/longafterx/mihomo-hub/internal/mihomo"
+	"github.com/longafterx/mihomo-hub/internal/runtimeconfig"
 	"github.com/longafterx/mihomo-hub/internal/storage"
 	"github.com/longafterx/mihomo-hub/internal/web"
 )
@@ -115,7 +116,8 @@ func Open(ctx context.Context, c config.Config, logger *slog.Logger) (*App, erro
 		Ready: func(ctx context.Context) error { return storage.Ready(ctx, db) },
 		Audit: admins.Audit, Static: web.Static(c.Server.StaticDir), Version: Version, Commit: Commit,
 		FrontendCommit: FrontendCommit, BuildTime: BuildTime, FrontendEmbedded: web.Embedded && c.Server.StaticDir == "",
-		Collector: manager,
+		Collector:     manager,
+		RuntimeConfig: runtimeconfig.New(registry, &storage.RuntimeConfigs{DB: db, AEAD: aead}, proxy),
 		Analytics: analytics.Service{
 			Repository: storage.Analytics{DB: reader, MaxInterval: time.Duration(c.Collector.MaxSnapshotGapMS) * time.Millisecond},
 		},

@@ -86,9 +86,13 @@ Schema 4 将未删除实例统一设置为启用管理与采集，变更记录�
 | PUT / DELETE | `/proxies/{name}` | 切换节点 / 取消固定选择 |
 | DELETE | `/connections`、`/connections/{id}` | 关闭连接 |
 | PATCH | `/rules/disable` | 原生运行时规则状态 |
-| PATCH | `/configs` | 只允许 mode、log-level、ipv6、sniffing、tcp-concurrent、unified-delay、find-process-mode |
+| PATCH | `/configs` | 允许原运行字段以及 port、socks-port、mixed-port、redir-port、tproxy-port、allow-lan、interface-name、tun；DNS 走平台完整配置接口 |
+| GET | `/dns/query` | 原生 DNS 查询，保留 name/type 参数 |
+| PUT | `/configs` | 仅重载设备当前配置；path/payload 必须为空 |
+| PUT | `/providers/{proxies\|rules}/{name}` | 更新单个 Provider；中文和编码斜杠保持不变 |
+| POST | `/restart`、`/configs/geo`、`/cache/dns/flush`、`/cache/fakeip/flush` | 重启内核、更新 Geo、清理缓存；不接受操作参数 |
 
-所有控制操作仅单管理员可用，并受 `allow_runtime_writes` 控制。Gateway 写请求采用严格同源 Origin/Referer 作为等效 CSRF 防护，以兼容原版 XD。原始 JSON Body 不重序列化。未知操作、PUT configs、Provider 更新、升级、重启、缓存/geo 管理均返回 403；即使 XD 出现相关按钮也不会执行。
+所有控制操作仅单管理员可用，并受 `allow_runtime_writes` 控制。Gateway 写请求采用严格同源 Origin/Referer 作为等效 CSRF 防护，以兼容原版 XD。原始 JSON Body 不重序列化。未知操作、升级、任意配置路径/任意 payload、Controller 监听与密钥修改仍返回 403。原生 PATCH 不支持 DNS 字段，拒绝它以避免假成功。维护操作使用 `maintenance_timeout_seconds`（默认 180 秒）；不自动重试。原生错误和版本不支持的 404/405 保留，并由页面显示失败原因；网络中断提示结果未确认，而非假成功。
 
 编码后的路径（包括名称里的编码斜杠）、重复 Query 键与原始转义保持不变；拒绝路径遍历、坏转义、控制字符和客户端 `token` 参数。服务端注入 Bearer Secret；WS 的 token 仅存在于 Go 到 Controller 的请求中。
 
@@ -98,6 +102,22 @@ WS 保持文字与二进制数据，按双向累计消息限制（含分片）�
 
 `/api/control/*` 始终 404，不报告 `hasAgent` 或 profiles/kernel-control 能力。`/api/*`、`/mihomo/*` 错误不会回退到 UI HTML。
 
+
+## 完整 YAML 与 DNS 热加载
+
+`/api/v1/instances/{id}/runtime-config` 是平台接口，不伪造 Mihomo 或 Agent 协议：
+
+| 方法 | 路径 | 行为 |
+|---|---|---|
+| GET | `/runtime-config` | 返回 imported/revision/updated_at_ms/dns，不返回完整 YAML |
+| PUT | `/runtime-config` | `{yaml,revision}` 导入该实例完整配置；只加密保存，不立即应用 |
+| PATCH | `/runtime-config/dns` | `{dns,revision}` 合并 DNS 并通过 Controller `PUT /configs?force=true` 热加载整份配置 |
+
+GET 要求 Session；PUT/PATCH 要求 Session、CSRF、同源与 `allow_runtime_writes=true`，使用平台变更限流和审计。revision 初始为 0；导入和应用成功均递增。过期提交返回 409 `runtime_config_conflict`。必须导入单文档 YAML，包含 rules/proxies/proxy-providers 中至少一个完整配置部分，不能只有 DNS 片段。浏览器文件限 512 KiB；平台 JSON 请求仍受 max_body_bytes 限制。
+
+DNS 可编辑字段为 enable、listen、enhanced-mode（fake-ip/redir-host）、nameserver、fallback、fake-ip-range、use-hosts；其余 DNS 策略和完整配置保留。完整热加载同时应用导入配置中的代理、规则、端口等，不读取部分 `/configs` 响应来拼装配置。导入来源由管理员负责；在设备上修改配置后需重新导入。URL 改变后旧 YAML 不可应用；删除实例即使 retain 历史也清除 YAML。完整 YAML 使用实例及用途绑定的 AEAD 加密，纳入数据库一致性备份，主密钥单独保管。
+
+`imported=true` 仅表示已保存基准，不表示它与当前内核一致。Mihomo 无原生完整 YAML/DNS 配置读取接口，Hub 无法检测外部改动。热加载不写设备文件，重载/重启后以设备文件为准。请求超时或断线不能证明操作未执行；返回 `runtime_config_unconfirmed`，应先检查状态和日志。内核接受但 Hub 保存失败返回 503 `runtime_config_save_failed`，不得盲目重试。Schema 5 新增加密配置表，不改动现有实例和历史。
 
 ## P1 状态与诊断
 

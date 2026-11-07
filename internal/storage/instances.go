@@ -84,6 +84,10 @@ func (r *Instances) Delete(ctx context.Context, id, history string) error {
 	if err := q.CloseObservedConnections(ctx, id); err != nil {
 		return err
 	}
+	// 保留历史也必须清除导入 YAML，它可能包含订阅密钥等设备配置凭据。
+	if err := q.DeleteRuntimeConfig(ctx, id); err != nil {
+		return fmt.Errorf("delete imported config: %w", err)
+	}
 	if history == "retain" {
 		now := time.Now().UTC().UnixMilli()
 		err = q.RetainInstance(ctx, generated.RetainInstanceParams{

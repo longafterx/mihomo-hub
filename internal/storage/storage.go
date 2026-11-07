@@ -18,7 +18,7 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-const SchemaVersion = 4
+const SchemaVersion = 5
 
 func Open(ctx context.Context, path string, busyMS int) (*sql.DB, error) {
 	abs, err := filepath.Abs(path)

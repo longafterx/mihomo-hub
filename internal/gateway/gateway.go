@@ -31,8 +31,11 @@ type Gateway struct {
 
 func New(c config.Config, instances *instance.Service, logger *slog.Logger) *Gateway {
 	policy := mihomo.Policy{AllowPublic: c.Gateway.AllowPublicControllers, AllowedPorts: c.Gateway.AllowedPorts}
+	transport := policy.Transport()
+	// Geo/Provider 下载会在返回响应头前阻塞；仍由每次请求的 context 限制总耗时。
+	transport.ResponseHeaderTimeout = time.Duration(max(c.Gateway.RequestTimeoutSeconds, c.Gateway.MaintenanceTimeoutSeconds)) * time.Second
 	return &Gateway{
-		instances: instances, transport: policy.Transport(), browser: auth.Browser{Origin: c.Server.PublicOrigin},
+		instances: instances, transport: transport, browser: auth.Browser{Origin: c.Server.PublicOrigin},
 		config: c, logger: logger, slots: make(chan struct{}, c.Gateway.MaxWebSockets),
 	}
 }
@@ -100,9 +103,14 @@ func (g *Gateway) Serve(w http.ResponseWriter, r *http.Request, session *auth.Se
 		cancel()
 	}
 	if !ws {
+		timeout := g.RequestTimeout(r.Method, escapedPath)
 		var timeoutCancel context.CancelFunc
-		ctx, timeoutCancel = context.WithTimeout(ctx, time.Duration(g.config.Gateway.RequestTimeoutSeconds)*time.Second)
+		ctx, timeoutCancel = context.WithTimeout(ctx, timeout)
 		defer timeoutCancel()
+		// 覆盖普通响应的 35 秒截止时间，否则较慢的维护操作会被提前截断。
+		if err := http.NewResponseController(w).SetWriteDeadline(time.Now().Add(timeout + 5*time.Second)); err != nil {
+			g.logger.Debug("gateway response deadline unavailable")
+		}
 	}
 	r = r.WithContext(ctx)
 	if !g.prepareBody(w, r, escapedPath) {
@@ -196,6 +204,8 @@ func allowed(method, path string, writes bool) bool {
 				return false
 			}
 			return len(parts) <= 3 || len(parts) <= 5 && parts[len(parts)-1] == "healthcheck"
+		case "dns":
+			return path == "/dns/query"
 		}
 	}
 	if !writes {
@@ -203,7 +213,20 @@ func allowed(method, path string, writes bool) bool {
 	}
 	switch method {
 	case http.MethodPut:
+		if path == "/configs" {
+			return true
+		}
+		provider := len(parts) == 3 && parts[0] == "providers"
+		if provider {
+			return parts[1] == "proxies" || parts[1] == "rules"
+		}
 		return len(parts) == 2 && parts[0] == "proxies"
+	case http.MethodPost:
+		// 只放行明确支持的 Controller 操作；升级和任意文件接口仍不代理。
+		switch path {
+		case "/restart", "/configs/geo", "/cache/dns/flush", "/cache/fakeip/flush":
+			return true
+		}
 	case http.MethodDelete:
 		return (parts[0] == "connections" && len(parts) <= 2) || (parts[0] == "proxies" && len(parts) == 2)
 	case http.MethodPatch:
@@ -243,15 +266,76 @@ func (g *Gateway) prepareBody(w http.ResponseWriter, r *http.Request, path strin
 		}
 		for key := range fields {
 			switch key {
-			case "mode", "log-level", "ipv6", "sniffing", "tcp-concurrent", "unified-delay", "find-process-mode":
+			case "mode", "log-level", "ipv6", "sniffing", "tcp-concurrent", "unified-delay", "find-process-mode",
+				"port", "socks-port", "mixed-port", "redir-port", "tproxy-port", "allow-lan", "interface-name", "tun":
 			default:
-				http.Error(w, "config field is not permitted in P0", http.StatusForbidden)
+				http.Error(w, "config field is not permitted; DNS requires an imported full YAML", http.StatusForbidden)
+				return false
+			}
+			if !validRuntimeField(key, fields[key]) {
+				http.Error(w, "invalid runtime config value", http.StatusBadRequest)
 				return false
 			}
 		}
 	}
+	if r.Method == http.MethodPut && path == "/configs" {
+		var input struct {
+			Path    string `json:"path"`
+			Payload string `json:"payload"`
+		}
+		decoder := json.NewDecoder(bytes.NewReader(body))
+		decoder.DisallowUnknownFields()
+		if err := decoder.Decode(&input); err != nil {
+			http.Error(w, "invalid reload body", http.StatusBadRequest)
+			return false
+		}
+		var extra any
+		if err := decoder.Decode(&extra); !errors.Is(err, io.EOF) {
+			http.Error(w, "invalid reload body", http.StatusBadRequest)
+			return false
+		}
+		// 普通重载只读取设备当前配置；完整 YAML 的热加载必须走平台 DNS 流程。
+		if input.Path != "" || input.Payload != "" {
+			http.Error(w, "reload only permits the current config file", http.StatusForbidden)
+			return false
+		}
+	}
+	if r.Method == http.MethodPost && len(bytes.TrimSpace(body)) != 0 && string(bytes.TrimSpace(body)) != "{}" {
+		http.Error(w, "maintenance operation does not accept parameters", http.StatusBadRequest)
+		return false
+	}
 	r.Body = io.NopCloser(bytes.NewReader(body))
 	return true
+}
+
+func validRuntimeField(key string, value json.RawMessage) bool {
+	switch key {
+	case "port", "socks-port", "mixed-port", "redir-port", "tproxy-port":
+		// 0 表示关闭监听；拒绝会使内核关闭旧监听却无法创建新监听的非法端口。
+		var port *int
+		if err := json.Unmarshal(value, &port); err != nil || port == nil {
+			return false
+		}
+		return *port >= 0 && *port <= 65535
+	case "allow-lan":
+		var enabled *bool
+		return json.Unmarshal(value, &enabled) == nil && enabled != nil
+	case "tun":
+		var tun map[string]json.RawMessage
+		return json.Unmarshal(value, &tun) == nil && len(tun) > 0
+	default:
+		return true
+	}
+}
+
+// RequestTimeout 为需要下载或重新加载的操作提供有界的较长超时。
+func (g *Gateway) RequestTimeout(method, path string) time.Duration {
+	configOrProvider := path == "/configs" || strings.HasPrefix(path, "/providers/")
+	maintenance := method == http.MethodPost || method == http.MethodPut && configOrProvider
+	if maintenance {
+		return time.Duration(g.config.Gateway.MaintenanceTimeoutSeconds) * time.Second
+	}
+	return time.Duration(g.config.Gateway.RequestTimeoutSeconds) * time.Second
 }
 
 func (g *Gateway) filterResponse(response *http.Response, ws bool) error {
