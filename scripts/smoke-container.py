@@ -3,11 +3,8 @@ import argparse
 import http.cookiejar
 import json
 import os
-import pty
-import select
 import socket
 import subprocess
-import tempfile
 import time
 import urllib.request
 import urllib.error
@@ -34,23 +31,6 @@ def free_port():
 
 try:
     docker('volume','create',volume)
-    master,slave=pty.openpty()
-    initializer=subprocess.Popen(['docker','run','--rm','-it','--read-only','--cap-drop=ALL','--security-opt=no-new-privileges:true','-v',volume+':/var/lib/mihomo-hub',args.image,'init'],stdin=slave,stdout=slave,stderr=slave,env=environment)
-    os.close(slave)
-    transcript=b''
-    try:
-        for prompt in (b'Admin password',b'Confirm password'):
-            deadline=time.monotonic()+30
-            while prompt not in transcript:
-                if time.monotonic()>deadline: raise AssertionError('container init timed out')
-                if select.select([master],[],[],0.1)[0]: transcript+=os.read(master,4096)
-            time.sleep(0.1)
-            os.write(master,(password+'\n').encode())
-        assert initializer.wait(timeout=30)==0, transcript.decode(errors='replace')
-        assert password.encode() not in transcript, 'password echoed'
-    finally:
-        if initializer.poll() is None: initializer.kill(); initializer.wait()
-        os.close(master)
     # 先确定随机映射端口，再以相同端口重建服务；Origin 校验必须与访问入口完全一致。
     docker('run','-d','--name',name,'--read-only','--cap-drop=ALL','--security-opt=no-new-privileges:true','--pids-limit=128','--memory=512m','-p','127.0.0.1::8080','-v',volume+':/var/lib/mihomo-hub',args.image)
     port=int(docker('port',name,'8080/tcp').rsplit(':',1)[1])
@@ -87,6 +67,11 @@ try:
     assert version['frontend_embedded'] is True
     assert len(version['frontend_commit'])==40
     assert version['schema_version']==5
+    assert json.loads(request('/api/v1/auth/setup')[1])['data']['setup_required']
+    assert '<form id="login"' in request('/')[1].decode(), 'first visit did not reach password setup'
+    token=json.loads(request('/api/v1/auth/setup',{'password':password,'confirm_password':password})[1])['data']['csrf_token']
+    assert request('/api/v1/auth/me')[0]==200
+    assert not json.loads(request('/api/v1/auth/setup')[1])['data']['setup_required']
     assert '__NUXT' in request('/')[1].decode()
     assert 'no-store' in request('/')[2]['Cache-Control']
     assert 'unregister' in request('/sw.js')[1].decode()
@@ -98,6 +83,7 @@ try:
     docker('restart','-t','10',name)
     ready()
     cookies.clear()
+    assert not json.loads(request('/api/v1/auth/setup')[1])['data']['setup_required']
     token=login()
     items=json.loads(request('/api/v1/instances')[1])['data']
     assert len(items)==1 and items[0]['id']==item['id'] and items[0]['has_secret']
@@ -108,7 +94,7 @@ try:
     assert replacement['id']!=item['id'] and not replacement['has_secret']
     # scratch 镜像中只有 Go 可执行文件、CA 与许可证，没有 Node/shell。
     assert subprocess.run(['docker','exec',name,'/usr/bin/node','--version'],env=environment,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL).returncode!=0
-    print('PASS: nonroot/read-only container, embedded UI, init/login, encrypted persistence, restart, backup, retained name reuse/new UUID/empty Secret, no Node runtime')
+    print('PASS: nonroot/read-only container, automatic initialization/browser setup, embedded UI, encrypted persistence, restart, backup, retained name reuse/new UUID/empty Secret, no Node runtime')
 finally:
     if tunnel: tunnel.terminate(); tunnel.wait(timeout=10)
     subprocess.run(['docker','rm','-f',name],env=environment,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)

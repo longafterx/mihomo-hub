@@ -10,17 +10,6 @@ import (
 	"database/sql"
 )
 
-const countAdmins = `-- name: CountAdmins :one
-SELECT COUNT(*) FROM admin
-`
-
-func (q *Queries) CountAdmins(ctx context.Context) (int64, error) {
-	row := q.db.QueryRowContext(ctx, countAdmins)
-	var count int64
-	err := row.Scan(&count)
-	return count, err
-}
-
 const deleteInstance = `-- name: DeleteInstance :exec
 DELETE FROM instances WHERE id = ?
 `
@@ -46,8 +35,20 @@ func (q *Queries) GetAdmin(ctx context.Context) (GetAdminRow, error) {
 	return i, err
 }
 
-const initializeAdmin = `-- name: InitializeAdmin :exec
+const hasProtectedData = `-- name: HasProtectedData :one
+SELECT EXISTS(SELECT 1 FROM admin UNION ALL SELECT 1 FROM instances)
+`
+
+func (q *Queries) HasProtectedData(ctx context.Context) (bool, error) {
+	row := q.db.QueryRowContext(ctx, hasProtectedData)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
+const initializeAdmin = `-- name: InitializeAdmin :execrows
 INSERT INTO admin(id, username, password_hash) VALUES (1, ?, ?)
+ON CONFLICT(id) DO NOTHING
 `
 
 type InitializeAdminParams struct {
@@ -55,9 +56,12 @@ type InitializeAdminParams struct {
 	PasswordHash string
 }
 
-func (q *Queries) InitializeAdmin(ctx context.Context, arg InitializeAdminParams) error {
-	_, err := q.db.ExecContext(ctx, initializeAdmin, arg.Username, arg.PasswordHash)
-	return err
+func (q *Queries) InitializeAdmin(ctx context.Context, arg InitializeAdminParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, initializeAdmin, arg.Username, arg.PasswordHash)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const listInstances = `-- name: ListInstances :many

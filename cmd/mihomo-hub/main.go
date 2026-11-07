@@ -116,6 +116,8 @@ func initialize(ctx context.Context, c config.Config) error {
 	admins := storage.Admins{DB: db}
 	if _, err := admins.Admin(ctx); err == nil {
 		return errors.New("administrator already initialized")
+	} else if !errors.Is(err, auth.ErrSetupRequired) {
+		return err
 	}
 	fmt.Fprintln(os.Stderr, "设置 MihomoHub 网页登录密码，与 Controller Secret 无关。")
 	fmt.Fprintf(os.Stderr, "Admin password (at least %d bytes): ", auth.MinPasswordBytes)
@@ -139,12 +141,7 @@ func initialize(ctx context.Context, c config.Config) error {
 	if err != nil {
 		return err
 	}
-	if _, err := os.Stat(c.Security.MasterKeyFile); errors.Is(err, os.ErrNotExist) {
-		if err := storage.InitKey(c.Security.MasterKeyFile); err != nil {
-			return err
-		}
-	}
-	if _, err := storage.LoadKey(c.Security.MasterKeyFile); err != nil {
+	if _, err := storage.PrepareKey(ctx, db, c.Security.MasterKeyFile); err != nil {
 		return err
 	}
 	if err := admins.Initialize(ctx, auth.Admin{Username: "admin", PasswordHash: hash}); err != nil {

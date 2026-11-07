@@ -11,7 +11,8 @@ import (
 
 type accounts struct{ admin auth.Admin }
 
-func (a accounts) Admin(context.Context) (auth.Admin, error) { return a.admin, nil }
+func (a accounts) Admin(context.Context) (auth.Admin, error)    { return a.admin, nil }
+func (a accounts) Initialize(context.Context, auth.Admin) error { return auth.ErrAlreadyInitialized }
 
 func TestSessionLifecycle(t *testing.T) {
 	hash, err := auth.HashPassword("test-password-with-length")

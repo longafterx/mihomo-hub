@@ -16,6 +16,7 @@ type Admin struct {
 
 type Repository interface {
 	Admin(context.Context) (Admin, error)
+	Initialize(context.Context, Admin) error
 }
 
 type Session struct {
@@ -44,9 +45,49 @@ func New(ctx context.Context, repo Repository, lifetime time.Duration) *Service 
 }
 
 var (
-	ErrCredentials = errors.New("invalid credentials")
-	ErrBusy        = errors.New("authentication capacity exceeded")
+	ErrCredentials        = errors.New("invalid credentials")
+	ErrBusy               = errors.New("authentication capacity exceeded")
+	ErrSetupRequired      = errors.New("administrator password must be set in the browser")
+	ErrAlreadyInitialized = errors.New("administrator already initialized")
+	ErrInvalidPassword    = errors.New("invalid password length or confirmation")
 )
+
+func (s *Service) SetupRequired(ctx context.Context) (bool, error) {
+	_, err := s.repo.Admin(ctx)
+	if errors.Is(err, ErrSetupRequired) {
+		return true, nil
+	}
+	return false, err
+}
+
+// Setup 与登录共用哈希并发上限；数据库原子写入确保不能再次设置或覆盖密码。
+func (s *Service) Setup(ctx context.Context, password, confirmation string) (string, *Session, error) {
+	select {
+	case s.logins <- struct{}{}:
+		defer func() { <-s.logins }()
+	default:
+		return "", nil, ErrBusy
+	}
+	required, err := s.SetupRequired(ctx)
+	if err != nil {
+		return "", nil, err
+	}
+	if !required {
+		return "", nil, ErrAlreadyInitialized
+	}
+	if len(password) < MinPasswordBytes || len(password) > MaxPasswordBytes || password != confirmation {
+		return "", nil, ErrInvalidPassword
+	}
+	hash, err := HashPassword(password)
+	if err != nil {
+		return "", nil, err
+	}
+	admin := Admin{Username: "admin", PasswordHash: hash}
+	if err := s.repo.Initialize(ctx, admin); err != nil {
+		return "", nil, err
+	}
+	return s.newSession(admin)
+}
 
 func (s *Service) Login(ctx context.Context, password string) (string, *Session, error) {
 	select {
@@ -63,6 +104,10 @@ func (s *Service) Login(ctx context.Context, password string) (string, *Session,
 	if !VerifyPassword(admin.PasswordHash, password) {
 		return "", nil, ErrCredentials
 	}
+	return s.newSession(admin)
+}
+
+func (s *Service) newSession(admin Admin) (string, *Session, error) {
 	token := rand.Text()
 	expires := time.Now().Add(s.lifetime)
 	sessionCtx, cancel := context.WithDeadline(s.root, expires)

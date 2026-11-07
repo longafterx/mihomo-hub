@@ -17,10 +17,10 @@ umask 077
 
 1. 在隔离的新目录准备备份副本，不覆盖仍在使用的数据目录。
 2. 将数据库快照复制为新目录的 `mihomo-hub.db`，设权限 0600。新目录不带旧库的 `-wal/-shm`。
-3. 从独立备份恢复对应的原始 32 字节 `master.key`，设权限 0600；目录建议 0700。不要再次 init 生成不同密钥。
+3. 从独立备份恢复对应的原始 32 字节 `master.key`，设权限 0600；目录建议 0700。不要生成新密钥替换旧密钥；已有业务数据缺少密钥时服务会拒绝启动。
 4. 准备新配置，指向这两个新路径。先停止原 MihomoHub 采集进程，以免两份 Collector 同时写各自历史；无需停止 Mihomo Controller。
 5. 使用同版本或支持该 schema 的较新二进制启动。服务自动执行版本迁移，拒绝比自身新的 schema；没有自动降级。
-6. 用备份中的管理员账号重新登录，检查 readyz、实例状态、Analytics coverage/gaps。Session 不在备份中。恢复首轮不产生累计尖峰；无法确认 epoch 的增长进入独立 candidate gap。
+6. 用备份中的 Hub 密码重新登录，检查 readyz、实例状态、Analytics coverage/gaps。Session 不在备份中。恢复首轮不产生累计尖峰；无法确认 epoch 的增长进入独立 candidate gap。
 7. 验证成功后再切换入口并保留原目录用于人工回退。回退也应使用对应版本/备份，不应直接让旧二进制打开已升级的数据库。
 
 自动化已验证 WAL 未 checkpoint 时的备份、打开快照恢复、游标/聚合一致、备份不可覆盖和文件权限。
@@ -35,18 +35,20 @@ umask 077
 
 1. 校验发布包 SHA256SUMS，将对应架构的 `mihomo-hub` 安装到 `/usr/local/bin/`；用 `version` 核对前端 SHA、后端 SHA、schema 和 embedded=true。
 2. 创建专用系统用户 `mihomo-hub`；创建 `/var/lib/mihomo-hub`（0700，属主为该用户）和 `/etc/mihomo-hub/config.yaml`（0640，用户可读）。配置数据库 `/var/lib/mihomo-hub/mihomo-hub.db`，密钥 `/var/lib/mihomo-hub/secrets/master.key`，监听及 public origin 使用实际入口。
-3. 以服务用户在交互终端执行 `mihomo-hub init --config /etc/mihomo-hub/config.yaml`。不要把密码放入 shell 历史、环境变量、日志或配置文件。
-4. 安装本目录的 `mihomo-hub.service`，执行 `systemctl daemon-reload`、`systemctl enable --now mihomo-hub`。用 `journalctl -u mihomo-hub`、`/readyz` 和登录后 `/api/v1/system/status` 检查服务。
+3. 安装本目录的 `mihomo-hub.service`，执行 `systemctl daemon-reload`、`systemctl enable --now mihomo-hub`。空数据首次启动会自动建表和生成主密钥，无需手动初始化。
+4. 浏览器打开服务入口，首次设置并确认 Hub 登录密码后自动进入控制台。用 `journalctl -u mihomo-hub`、`/readyz` 和登录后 `/api/v1/system/status` 检查服务。已有数据启动时直接使用原密码登录。
 
 服务单元启用只读系统目录、独立临时目录、无附加能力和 0077 umask；唯一持久可写目录是 `/var/lib/mihomo-hub`。目标设备上的 TUN 权限由设备侧管理员配置；Hub 不安装提权助手。
 
 ## 容器与权限
 
-低内存机器推荐 `sh scripts/build-image.sh dist/mihomo-hub_0.3.0_linux_amd64` 封装已验证的对应架构发布目录，无需在目标机器编译。内存充足的构建机可从锁定前端生成静态资源后执行 `sh scripts/build-image.sh`，使用完整多阶段构建。`docker compose run --rm -it mihomo-hub init` 初始化同一个 named volume，再 `docker compose up -d`。镜像默认非 root 65532:65532；named volume 首次挂载使用镜像目录权限。bind mount 需预先由管理员创建 0700 目录并设置 `chown 65532:65532`。
+低内存机器推荐 `sh scripts/build-image.sh dist/mihomo-hub_0.3.0_linux_amd64` 封装已验证的对应架构发布目录，无需在目标机器编译。内存充足的构建机可从锁定前端生成静态资源后执行 `sh scripts/build-image.sh`，使用完整多阶段构建。直接执行 `docker compose up -d`，打开网页设置首次登录密码。镜像默认非 root 65532:65532；named volume 首次挂载使用镜像目录权限。bind mount 需预先由管理员创建 0700 目录并设置 `chown 65532:65532`。
+
+自动初始化只创建空库和主密钥；密码始终由首次网页提交设置，没有默认密码。设置完成前，仅开放登录引导、公开静态资源及探活，管理 API 和 Gateway 仍要求认证。多个浏览器同时设置时只有一个成功，其他浏览器切回登录。首次入口同样使用下文的 loopback、Tailnet ACL 或受限反代配置，确保由部署者完成密码设置。`/readyz` 在待设置密码阶段也返回就绪，可用 `GET /api/v1/auth/setup` 查看是否仍需设置。
 
 `docker compose exec mihomo-hub /mihomo-hub version` 核对版本；`docker compose exec mihomo-hub /mihomo-hub backup --output /var/lib/mihomo-hub/backups/新文件.db` 在线备份（先创建可写 backups 目录）。镜像没有 shell/curl，使用内置 `healthcheck`。将备份复制到受限宿主路径，主密钥独立保管。
 
-恢复时停 Hub 容器，将快照和对应密钥放入新的空 volume，再以服务 UID 验证 0600 权限后启动；不运行 init。不要复制旧 WAL/SHM 文件覆盖快照，也不要更改 neko-master 或 Controller 进程。
+恢复时停 Hub 容器，将快照和对应密钥放入新的空 volume，再以服务 UID 验证 0600 权限后启动；恢复后沿用原密码。不要复制旧 WAL/SHM 文件覆盖快照，也不要更改 neko-master 或 Controller 进程。
 
 ## HTTPS、反向代理与 Tailscale
 

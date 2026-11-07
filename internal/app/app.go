@@ -41,16 +41,17 @@ func Open(ctx context.Context, c config.Config, logger *slog.Logger) (*App, erro
 	if err := c.Validate(); err != nil {
 		return nil, err
 	}
-	aead, err := storage.LoadKey(c.Security.MasterKeyFile)
-	if err != nil {
-		return nil, err
-	}
 	db, err := storage.Open(ctx, c.Database.Path, c.Database.BusyTimeoutMS)
 	if err != nil {
 		return nil, err
 	}
+	aead, err := storage.PrepareKey(ctx, db, c.Security.MasterKeyFile)
+	if err != nil {
+		return nil, errors.Join(err, db.Close())
+	}
 	admins := storage.Admins{DB: db}
-	if _, err := admins.Admin(ctx); err != nil {
+	// 空数据库进入网页密码设置；数据库读取失败仍应阻止启动。
+	if _, err := admins.Admin(ctx); err != nil && !errors.Is(err, auth.ErrSetupRequired) {
 		return nil, errors.Join(err, db.Close())
 	}
 	root, cancel := context.WithCancel(ctx)

@@ -1,17 +1,13 @@
 """Exercise the real production CLI with ephemeral local credentials and data."""
-import errno
 import http.cookiejar
 import json
 import os
 from pathlib import Path
-import pty
-import select
 import signal
 import socket
 import sqlite3
 import subprocess
 import tempfile
-import termios
 import time
 import urllib.error
 import urllib.request
@@ -42,43 +38,6 @@ with tempfile.TemporaryDirectory(prefix="mihomohub-cli-") as directory:
     )
     environment = {key: value for key, value in os.environ.items() if not key.startswith("MIHOMOHUB_")}
     fixture_password = "12345678"
-    master, slave = pty.openpty()
-    initializer = subprocess.Popen(
-        [str(binary), "init", "--config", str(config)],
-        stdin=slave, stdout=slave, stderr=slave, env=environment,
-    )
-    os.close(slave)
-    transcript = b""
-    try:
-        for prompt in (b"Admin password", b"Confirm password"):
-            deadline = time.monotonic() + 10
-            while prompt not in transcript:
-                assert time.monotonic() < deadline, "init prompt timed out"
-                if select.select([master], [], [], 0.1)[0]:
-                    transcript += os.read(master, 4096)
-            while termios.tcgetattr(master)[3] & termios.ECHO:
-                assert time.monotonic() < deadline, "password input echo remained enabled"
-                time.sleep(0.001)
-            os.write(master, (fixture_password + "\n").encode())
-        assert initializer.wait(timeout=10) == 0
-        while select.select([master], [], [], 0.1)[0]:
-            try:
-                chunk = os.read(master, 4096)
-                if not chunk:
-                    break
-                transcript += chunk
-            except OSError as error:
-                if error.errno == errno.EIO:
-                    break
-                raise
-        assert fixture_password.encode() not in transcript, "init echoed the password"
-        assert (root / "master.key").stat().st_mode & 0o777 == 0o600
-    finally:
-        if initializer.poll() is None:
-            initializer.kill()
-            initializer.wait()
-        os.close(master)
-
     server = subprocess.Popen(
         [str(binary), "serve", "--config", str(config)],
         stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=environment,
@@ -100,6 +59,24 @@ with tempfile.TemporaryDirectory(prefix="mihomohub-cli-") as directory:
             assert error.code == 401
         jar = http.cookiejar.CookieJar()
         client = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
+        # 不运行 init：空目录直接启动，再通过网页使用的接口设置一次密码。
+        with client.open(origin + "/api/v1/auth/setup", timeout=2) as response:
+            assert json.load(response)["data"]["setup_required"] is True
+        setup_request = urllib.request.Request(
+            origin + "/api/v1/auth/setup",
+            data=json.dumps({"password": fixture_password, "confirm_password": fixture_password}).encode(),
+            headers={"Origin": origin, "Content-Type": "application/json"},
+        )
+        with client.open(setup_request, timeout=5) as response:
+            assert response.status == 200
+        with client.open(origin + "/api/v1/auth/me", timeout=2) as response:
+            assert response.status == 200, "setup did not create a session"
+        assert (root / "master.key").stat().st_mode & 0o777 == 0o600
+        try:
+            client.open(setup_request, timeout=5)
+            raise AssertionError("password setup accepted twice")
+        except urllib.error.HTTPError as error:
+            assert error.code == 409
         request = urllib.request.Request(
             origin + "/api/v1/auth/login",
             data=json.dumps({"password": fixture_password}).encode(),
@@ -143,6 +120,8 @@ with tempfile.TemporaryDirectory(prefix="mihomohub-cli-") as directory:
                     assert restored_server.poll() is None and time.monotonic() < deadline, "restore failed"
                     time.sleep(0.05)
             jar.clear()
+            with client.open(origin + "/api/v1/auth/setup", timeout=2) as response:
+                assert json.load(response)["data"]["setup_required"] is False
             with client.open(request, timeout=5) as response:
                 assert response.status == 200
             with client.open(origin + "/api/v1/instances", timeout=2) as response:
@@ -151,7 +130,7 @@ with tempfile.TemporaryDirectory(prefix="mihomohub-cli-") as directory:
         finally:
             restored_server.send_signal(signal.SIGTERM)
             assert restored_server.wait(timeout=5) == 0
-        print("PASS: CLI init/Session/version/healthcheck, 0600 key/backup, no overwrite, SIGTERM, snapshot restore and re-login")
+        print("PASS: automatic first run, browser password setup/Session, version/healthcheck, 0600 key/backup, no overwrite, SIGTERM, snapshot restore and re-login")
     finally:
         if server.poll() is None:
             server.kill()

@@ -6,17 +6,21 @@
 
 | 方法和路径 | 权限 | 行为 |
 |---|---|---|
-| `GET /login` | 公开 | 后端提供的最小登录页，独立于 XD 源码 |
+| `GET /login` | 公开 | 后端提供的首次密码设置/登录页，独立于 XD 源码 |
+| `GET /api/v1/auth/setup` | 公开 | 返回 `setup_required` 和密码字节长度边界，不返回账号、凭据或密钥 |
+| `POST /api/v1/auth/setup` | 同源、仅首次 | JSON `password/confirm_password`；原子创建单管理员并自动设置 Session Cookie |
 | `POST /api/v1/auth/login` | 同源 | JSON `password`（兼容并忽略旧 `username`）；设置 HttpOnly Session Cookie |
 | `GET /api/v1/auth/me` | Session | `csrf_token/expires_at_ms` |
 | `POST /api/v1/auth/logout` | Session + CSRF | 撤销会话并断开其 WS，清除 Cookie |
 | `GET /api/v1/meta` | Session | 后端/前端版本、API/schema 版本与构建信息 |
 
-管理员密码是 MihomoHub 网页登录密码，与实例 Controller Secret 独立；初始化要求 8–1024 字节，不强制大小写、数字或符号组合。现有密码哈希保持兼容，无需重新初始化；登录页及 CLI 初始化不再要求用户名，数据库保留旧用户名仅作内部标识。
+管理员密码是 MihomoHub 网页登录密码，与实例 Controller Secret 独立；首次设置要求 8–1024 字节，不强制大小写、数字或符号组合。空数据库直接启动，自动迁移建表和创建主密钥，打开根地址跳转到 `/login` 完成首次设置。现有密码哈希保持兼容，无需重新设置；登录页只要求密码，数据库保留旧用户名仅作内部标识。
 
-Cookie 名为 `mihomohub_session`，Path=/，SameSite=Strict，HTTPS Origin 下 Secure。只保存 Session ID 的 SHA-256 哈希；每次成功登录生成新 Session 并撤销本浏览器旧 Session。最多 1024 活跃 Session、两个并行密码验证；按物理 IP 限制每分钟 10 次登录（含成功）。
+首次设置和审计在同一事务内完成，并发请求只允许一个成功，重复设置返回 409 `already_initialized`，不覆盖密码；确认不一致或长度不符返回 400 `invalid_password`。尚未设置时登录返回 409 `setup_required`，其他管理 API 和 Gateway 仍返回 401。状态接口始终 `no-store`，网页遇到其他浏览器已完成设置时切回普通登录。`/readyz` 表示服务可用，待设置密码时也返回 200。已存在管理员或实例但缺少主密钥时拒绝启动，要求恢复原密钥，禁止自动生成替代密钥。
 
-所有平台写请求（登录除外）同时要求 Cookie、`X-CSRF-Token` 和同源 Origin/Referer；登录也要求同源 Origin/Referer。CLI 需手动设置 `Origin`。WS 严格要求 Origin，不能仅用 Referer。所有写请求按 Session 限制每分钟 120 次。
+Cookie 名为 `mihomohub_session`，Path=/，SameSite=Strict，HTTPS Origin 下 Secure。只保存 Session ID 的 SHA-256 哈希；每次成功登录生成新 Session 并撤销本浏览器旧 Session。最多 1024 活跃 Session；设置密码与登录共用两个并行哈希计算名额、按物理 IP 每分钟 10 次请求的限流（含成功）。
+
+所有平台写请求（登录和首次设置密码除外）同时要求 Cookie、`X-CSRF-Token` 和同源 Origin/Referer；登录和首次设置也要求同源 Origin/Referer。CLI 需手动设置 `Origin`。WS 严格要求 Origin，不能仅用 Referer。已认证写请求按 Session 限制每分钟 120 次。
 
 正式发布的 `/meta` 提供实际 frontend_commit 与 frontend_embedded；外部静态目录覆盖时 embedded=false，详见末尾 P3 版本说明。
 
@@ -71,7 +75,7 @@ Schema 3 将名称唯一约束改为 `WHERE deleted_at_ms IS NULL` 的唯一索�
 
 Schema 4 将未删除实例统一设置为启用管理与采集，变更记录的 generation 加一；已启用记录、删除墓碑及历史表保持原状。旧版本恢复需使用升级前备份。
 
-顶部实例菜单将当前视图标为“显示中”，其他健康实例标为“采集中”，异常状态显示实际采集状态；顶部标签可直接切换。切换与页面关闭都不改变服务端采集。
+顶部实例菜单将当前视图标为“显示中”，其他健康实例标为“采集中”，异常状态显示实际采集状态；顶部标签仅展示，悬浮按需测试连接延迟，手动切换统一使用下拉菜单。切换与页面关闭都不改变服务端采集。
 
 ## Mihomo 原生 Gateway
 

@@ -24,8 +24,9 @@ INSERT INTO audit_events(actor, action, target_id, result, at_ms) VALUES ('admin
 -- name: GetAdmin :one
 SELECT username, password_hash FROM admin WHERE id=1;
 
--- name: InitializeAdmin :exec
-INSERT INTO admin(id, username, password_hash) VALUES (1, ?, ?);
+-- name: InitializeAdmin :execrows
+INSERT INTO admin(id, username, password_hash) VALUES (1, ?, ?)
+ON CONFLICT(id) DO NOTHING;
 
--- name: CountAdmins :one
-SELECT COUNT(*) FROM admin;
+-- name: HasProtectedData :one
+SELECT EXISTS(SELECT 1 FROM admin UNION ALL SELECT 1 FROM instances);
