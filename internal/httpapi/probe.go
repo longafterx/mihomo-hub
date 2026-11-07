@@ -60,12 +60,15 @@ func (a *api) testDraft(c *gin.Context) {
 		return
 	}
 	// 测试未保存的表单仅 GET /version，不创建实例或切换现有采集器。
+	started := time.Now()
 	version, err := policy.Probe(ctx, item.ControllerURL, item.Secret)
 	if err != nil {
 		probeError(c, err)
 		return
 	}
-	respond(c, http.StatusOK, gin.H{"reachable": true, "version": version})
+	respond(c, http.StatusOK, gin.H{
+		"reachable": true, "version": version, "latency_ms": time.Since(started).Milliseconds(),
+	})
 }
 
 func (a *api) probe(c *gin.Context) {
@@ -86,12 +89,19 @@ func (a *api) probe(c *gin.Context) {
 		fail(c, 503, "audit_unavailable", "probe unavailable")
 		return
 	}
-	version, err := (mihomo.Policy{AllowPublic: a.Config.Gateway.AllowPublicControllers, AllowedPorts: a.Config.Gateway.AllowedPorts}).Probe(ctx, item.ControllerURL, item.Secret)
+	policy := mihomo.Policy{
+		AllowPublic: a.Config.Gateway.AllowPublicControllers, AllowedPorts: a.Config.Gateway.AllowedPorts,
+	}
+	// 只测 Hub 到 Controller 的 HTTP 请求耗时，不将浏览器链路和审计写入算作连接延迟。
+	started := time.Now()
+	version, err := policy.Probe(ctx, item.ControllerURL, item.Secret)
 	if err != nil {
 		probeError(c, err)
 		return
 	}
-	respond(c, http.StatusOK, gin.H{"reachable": true, "version": version})
+	respond(c, http.StatusOK, gin.H{
+		"reachable": true, "version": version, "latency_ms": time.Since(started).Milliseconds(),
+	})
 }
 
 func probeError(c *gin.Context, err error) {

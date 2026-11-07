@@ -64,7 +64,7 @@ try {
     await page.locator('#hub-endpoint').click()
     await page.locator(`[data-hub-menu-instance="${id}"]`).click()
     assert.equal(await page.locator('#hub-endpoint').getAttribute('aria-expanded'), 'false')
-    assert.equal(await page.locator(`[data-hub-quick-instance="${id}"]`).getAttribute('aria-pressed'), 'true')
+    assert.equal(await page.locator(`[data-hub-instance-status="${id}"]`).getAttribute('aria-current'), 'true')
   }
   await page.getByTestId('hub-instance-status').waitFor()
   await page.locator('#hub-endpoint').focus()
@@ -74,8 +74,77 @@ try {
   assert.equal(await page.getByRole('menuitem', { name: 'Manage instances', exact: true }).evaluate(el => el === document.activeElement), true)
   await page.keyboard.press('Escape')
   assert.equal(await page.locator('#hub-endpoint').evaluate(el => el === document.activeElement), true)
-  await page.locator(`[data-hub-quick-instance="${ids[1]}"]`).click()
+  await chooseInstance(ids[0])
+  const beforeBadgeClick = await page.locator('#hub-endpoint').innerText()
+  const badge = page.locator(`[data-hub-instance-status="${ids[1]}"]`)
+  await badge.click()
+  assert.equal(await page.locator('#hub-endpoint').innerText(), beforeBadgeClick, 'Status badges must not switch instances; only the dropdown can change selection')
+  assert.equal(await badge.evaluate(el => el.tagName), 'SPAN')
+  await page.getByRole('tooltip').filter({ hasText: 'Connection successful' }).waitFor()
+  assert.match(await page.getByRole('tooltip').innerText(), /\d+ ms/)
+  const probesBefore = observed.filter(u => u.endsWith(`/instances/${ids[1]}/test`)).length
+  await page.locator('#hub-endpoint').hover()
+  await badge.hover()
+  await page.getByRole('tooltip').filter({ hasText: 'Connection successful' }).waitFor()
+  assert.equal(observed.filter(u => u.endsWith(`/instances/${ids[1]}/test`)).length, probesBefore, 'Repeated hover should use a short-lived cached probe')
+  mkdirSync('test-results', { recursive: true })
+  await page.screenshot({ path: 'test-results/hub-instance-latency-desktop.png' })
+  await chooseInstance(ids[1])
   assert.equal(await page.locator('#hub-endpoint').innerText(), 'smoke-1')
+  const persistedChoice = (await (await context.request.get(`${url}/api/v1/instances`)).json()).data.at(-1).id
+  await chooseInstance(persistedChoice)
+  await page.reload()
+  await page.locator(`[data-hub-instance-status="${persistedChoice}"][aria-current="true"]`).waitFor()
+
+  // 为两个测试实例提供明确不同的只读数据，切换时不再跳转页面来掩盖旧缓存。
+  const fixtures = ['proxies', 'configs', 'rules']
+  for (const kind of fixtures) {
+    await page.route(`**/mihomo/*/${kind}`, async route => {
+      if (route.request().method() !== 'GET') return route.continue()
+      const id = new URL(route.request().url()).pathname.split('/')[2]
+      const index = ids.indexOf(id)
+      const response = await route.fetch()
+      const body = await response.json()
+      if (kind === 'proxies') body.proxies[`instance-${index}`] = { ...body.proxies['测试策略'], name: `instance-${index}` }
+      if (kind === 'configs') body['mixed-port'] = 17000 + index
+      if (kind === 'rules') body.rules[0].payload = `instance-${index}.example`
+      await route.fulfill({ response, json: body })
+    })
+  }
+  for (const kind of ['proxies', 'rules', 'config', 'logs', 'traffic']) {
+    await chooseInstance(ids[0])
+    await page.goto(`${url}/#/${kind}`)
+    const routeURL = page.url()
+    let firstTotal
+    for (const index of [0, 1]) {
+      if (index) await chooseInstance(ids[index])
+      assert.equal(page.url(), routeURL, 'Instance switching must keep the current page')
+      if (kind === 'proxies') {
+        await page.locator(`[data-proxy-group="instance-${index}"]`).first().waitFor()
+        await page.waitForFunction(selector => document.querySelectorAll(selector).length === 0, `[data-proxy-group="instance-${1-index}"]`, { timeout: 3000 })
+        assert.equal(await page.locator(`[data-proxy-group="instance-${1-index}"]`).count(), 0, 'Previous instance proxy cache remained visible')
+      }
+      if (kind === 'rules') {
+        await page.getByText(`instance-${index}.example`, { exact: true }).first().waitFor()
+        await page.getByText(`instance-${1-index}.example`, { exact: true }).first().waitFor({ state: 'hidden', timeout: 3000 })
+        assert.equal(await page.getByText(`instance-${1-index}.example`, { exact: true }).count(), 0)
+      }
+      if (kind === 'config') await page.waitForFunction(port => Number(document.querySelector('#mixedPort')?.value) === port, 17000 + index)
+      if (kind === 'logs') {
+        await page.getByText(`smoke-${index} online`, { exact: true }).first().waitFor()
+        await page.getByText(`smoke-${1-index} online`, { exact: true }).first().waitFor({ state: 'hidden', timeout: 3000 })
+        assert.equal(await page.getByText(`smoke-${1-index} online`, { exact: true }).count(), 0, 'Previous instance logs remained visible')
+      }
+      if (kind === 'traffic') {
+        await page.waitForFunction(id => document.querySelector('#hub-history-instance')?.value === id, ids[index])
+        await page.getByTestId('hub-total').waitFor()
+        const total = await page.getByTestId('hub-total').innerText()
+        if (index) assert.notEqual(total, firstTotal, 'Usage total did not follow the current instance')
+        firstTotal = total
+      }
+    }
+  }
+  for (const kind of fixtures) await page.unroute(`**/mihomo/*/${kind}`)
   const background = (await (await context.request.get(`${url}/api/v1/instances`)).json()).data
   assert(background.every(item => item.enabled && item.collect_enabled && item.collector_status === 'online'), 'Switching must leave every background collector online')
   for (const [index, id] of ids.entries()) {
@@ -101,6 +170,7 @@ try {
   await page.screenshot({ path: 'test-results/hub-switcher-desktop.png', fullPage: true })
   await page.keyboard.press('Escape')
   await page.goto(`${url}/#/traffic`)
+  await page.locator('#hub-history-instance').selectOption('all')
   await page.getByTestId('hub-total').waitFor()
   assert.equal(await page.getByTestId('hub-usage-views').getByRole('button').count(), 5)
   assert.equal(await page.getByTestId('hub-usage-summary').locator('section').count(), 4)
@@ -252,6 +322,7 @@ try {
   await page.getByRole('dialog').waitFor({ state: 'hidden' })
   await page.setViewportSize({ width: 1440, height: 1000 })
   await page.goto(`${url}/#/traffic`)
+  await page.locator('#hub-history-instance').selectOption('all')
   await page.getByTestId('hub-total').waitFor()
   assert.equal(await page.getByTestId('hub-total').innerText(), total)
   await page.locator('#hub-history-instance').selectOption(ids[1])
@@ -289,7 +360,7 @@ try {
   await page.getByRole('button', { name: 'Log out', exact: true }).click()
   await page.waitForURL('**/login')
   assert.equal((await context.request.get(`${url}/api/v1/instances`)).status(), 401)
-  console.log('PASS: XD usage layout/summary/ranking/sort/search/mobile/diagnostics, password-only login, mandatory collection, instance menu/quick switch/keyboard/mobile, Hub CRUD/persistence/retain/purge, SQLite single/all history, five TOP dimensions, mobile/error/retry/logout, runtime routes, 4 WS, secret isolation')
+  console.log('PASS: XD usage layout/summary/ranking/sort/search/mobile/diagnostics, password-only login, mandatory collection, dropdown-only instance switching/same-page refresh/hover latency cache/keyboard/mobile, Hub CRUD/persistence/retain/purge, SQLite single/all history, five TOP dimensions, mobile/error/retry/logout, runtime routes, 4 WS, secret isolation')
 } catch (error) {
   if (page) {
     console.error('Smoke failed at', page.url(), (await page.locator('body').innerText()).slice(0, 3000))

@@ -121,6 +121,8 @@ DNS 可编辑字段为 enable、listen、enhanced-mode（fake-ip/redir-host）�
 
 ## P1 状态与诊断
 
+`POST /api/v1/instances/{id}/test` 使用已保存的 Controller 地址与服务端 Secret，仅请求 `/version`。成功返回 `{reachable:true,version,latency_ms}`，其中 `latency_ms` 是 Go 测得的 Hub → Controller HTTP 请求耗时（整数毫秒，包含连接建立，不包含浏览器链路和审计写入），小于 1 毫秒时为 0；它不是代理节点延迟或 ICMP ping。草稿测试 `/api/v1/instances/test` 返回同样字段。失败不返回成功延迟，保留原有脱敏错误码；均要求 Session、同源、CSRF 并受平台限流控制。
+
 `GET /api/v1/instances/{id}/status` 需 Session。状态为 `disabled`、`connecting`、`online`、`degraded` 或 `capacity_limited`。返回 `last_seen_at_ms`、`last_connected_at_ms`、`last_snapshot_at_ms`（未知为 null）、`last_error_code`、`reconnect_count`、`samples_committed`、`dropped_samples`、`collector_lag_ms`。内存计数随进程/worker 重建清零；持久游标恢复上次快照时间。online 需成功提交有效采样，不仅是握手成功。
 
 错误码包括 `connect_failed`、`stream_interrupted`、`target_rejected`、`invalid_snapshot`、`invalid_snapshot_type`、`invalid_counters`、`writer_backpressure`、`storage_error`。不返回带凭据的原始上游错误。
