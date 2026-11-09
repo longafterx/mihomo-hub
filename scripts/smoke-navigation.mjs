@@ -11,6 +11,7 @@ import { createInterface } from 'node:readline'
 const frontend = resolve(process.argv[2] || '../metacubexd')
 const require = createRequire(join(frontend, 'packages/ui/package.json'))
 const { chromium } = require('playwright')
+const { expect } = require('@playwright/test')
 const temporary = mkdtempSync(join(tmpdir(), 'mihomohub-navigation-'))
 const binary = join(temporary, 'fixture-server')
 const embedded = !!process.env.MIHOMOHUB_EMBED_SMOKE
@@ -123,16 +124,15 @@ try {
     await page.getByText('example.com', { exact: true }).first().waitFor()
   }
   mkdirSync('test-results', { recursive: true })
-  // Playwright 的可见性判断不包含 opacity；补充断言，防止内容存在却一直透明。
-  await page.waitForFunction(() => !document.querySelector('.page-enter-active, .page-leave-active'))
-  const opacity = await page.getByText('example.com', { exact: true }).first().evaluate(element => {
+  // Playwright 的可见性判断不包含 opacity；轮询祖先的实际透明度，等待各层入场动画结束，
+  // 同时防止内容存在却一直透明。每次重新定位，兼容实例切换时元素被重新挂载。
+  await expect.poll(async () => page.getByText('example.com', { exact: true }).first().evaluate(element => {
     let opacity = 1
     for (let node = element; node; node = node.parentElement) {
       opacity *= Number(getComputedStyle(node).opacity)
     }
     return opacity
-  })
-  assert.equal(opacity, 1, 'Page content remained transparent after navigation')
+  }), { timeout: 2500, message: 'Page content remained transparent after navigation' }).toBe(1)
   await page.screenshot({ path: 'test-results/hub-navigation-desktop.png' })
 
   await page.setViewportSize({ width: 390, height: 844 })
