@@ -68,6 +68,7 @@ go vet -tags=integration,frontend ./...
 sh scripts/generate-sql.sh
 python3 scripts/smoke-cli.py
 MIHOMOHUB_EMBED_SMOKE=1 node scripts/smoke-setup.mjs ../metacubexd
+MIHOMOHUB_EMBED_SMOKE=1 node scripts/smoke-navigation.mjs ../metacubexd
 MIHOMOHUB_EMBED_SMOKE=1 node scripts/smoke-hub.mjs ../metacubexd
 python3 scripts/smoke-container.py
 DOCKER_CONTEXT=desktop-linux env -u DOCKER_HOST node scripts/smoke-controls.mjs ../metacubexd

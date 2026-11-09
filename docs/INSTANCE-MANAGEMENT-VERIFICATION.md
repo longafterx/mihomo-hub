@@ -48,6 +48,10 @@ MIHOMOHUB_EMBED_SMOKE=1 node scripts/smoke-hub.mjs ../metacubexd
 
 2026-11-07 补充：Hub 以当前路由和实例 ID 标识页面，切换后保持当前路径并重建局部表单与图表。原生查询继续按实例隔离，取消离开实例的读取；重新进入同一实例也主动读取当前内核状态。代理 Store 同步清空节点、Provider、延迟和加载状态，通过请求代次丢弃迟到结果，包括切走再切回同一 ID 的情况。已有四路 WebSocket 清空旧流量、内存、日志及连接后重新连接；用量默认跟随当前实例，仍保留显式的全部实例和已删除实例历史筛选。
 
+2026-11-09 修复菜单导航回归：此前 `app.vue` 用延迟同步的 `useRoute().path` 生成 `NuxtPage` 的字符串 key。切换路由时页面先变化，key 随后再次变化，引发重复挂载、菜单高亮停留旧页和用量短暂空白。改为以 `NuxtPage` 回调传入的目标路由及实例 ID 生成 key；Sidebar、手机导航、页面过渡与实例数据隔离的原有行为保持。
+
+新增 `scripts/smoke-navigation.mjs`，在真实 Nuxt 静态产物和本地双 Fake Controller 上执行菜单点击，直接断言 `.nav-link.is-active` 的视觉高亮，而不是仅验证 URL 或 RouterLink 的 `aria-current`。旧内嵌前端执行 `MIHOMOHUB_EMBED_SMOKE=1 node scripts/smoke-navigation.mjs ../metacubexd` 可复现 `URL=…/#/rules, highlighted=[]`；修复后覆盖桌面收起/展开、重复和快速点击、用量页面只挂载一次、后退/前进、直接刷新、同页切换实例，以及手机底部/二级菜单/抽屉导航。截图在 `test-results/hub-navigation-{desktop,mobile}.png`，已接入发布验证工作流。
+
 浏览器回归在两个本地临时实例上注入不同的代理组、规则和端口，验证同一页面切换后仅展示对应内容；日志验证旧实例行已清空，用量验证当前实例范围与总量变化。另覆盖标签点击不切换、悬浮延迟与短期缓存、键盘菜单、桌面/手机视口，以及原有 CRUD、历史和 Secret 隔离。代理缓存与异步测速另有单元测试覆盖迟到响应与同 ID 再进入。
 
 本轮 Go 完整竞态检查、集成测试与 vet 通过；前端 68 个测试文件共 736 项单元测试、typecheck 和改动文件 ESLint 通过。刷新浏览器时，实例目录尚未加载不会清空已保存的选择，目录返回后继续查看原实例；删除当前实例的自动回退保持有效。悬浮截图在 `test-results/hub-instance-latency-desktop.png`，未将探测请求或测试负载发往已有实例。

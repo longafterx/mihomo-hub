@@ -65,6 +65,7 @@ jobs:
           test -z "$(git ls-files --others --exclude-standard internal/storage/generated)"
           python3 scripts/smoke-cli.py
           MIHOMOHUB_EMBED_SMOKE=1 node scripts/smoke-setup.mjs ../frontend
+          MIHOMOHUB_EMBED_SMOKE=1 node scripts/smoke-navigation.mjs ../frontend
           MIHOMOHUB_EMBED_SMOKE=1 node scripts/smoke-hub.mjs ../frontend
       - name: Build Linux amd64 and arm64 releases
         working-directory: backend
