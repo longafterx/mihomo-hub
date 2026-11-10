@@ -496,7 +496,7 @@ func TestWebSocketStreamsAndClose(t *testing.T) {
 }
 
 func TestActiveStreamRevocation(t *testing.T) {
-	for _, action := range []string{"rename", "delete", "credentials", "logout", "shutdown"} {
+	for _, action := range []string{"delete", "credentials", "logout", "shutdown"} {
 		t.Run(action, func(t *testing.T) {
 			h := setup(t)
 			conn, _, err := h.ws(h.ids[0], "/logs", h.server.URL, true)
@@ -510,9 +510,6 @@ func TestActiveStreamRevocation(t *testing.T) {
 				t.Fatal(err)
 			}
 			switch action {
-			case "rename":
-				resp, _ := h.request("PATCH", "/api/v1/instances/"+h.ids[0], `{"name":"renamed"}`, true)
-				requireStatus(t, resp, 200)
 			case "delete":
 				resp, _ := h.request("DELETE", "/api/v1/instances/"+h.ids[0]+"?history=purge", "", true)
 				requireStatus(t, resp, 200)
@@ -534,11 +531,6 @@ func TestActiveStreamRevocation(t *testing.T) {
 			}
 			if ctx.Err() != nil {
 				t.Fatal("revocation did not close browser websocket promptly")
-			}
-			if action == "rename" {
-				// 改名后的新代际会自动采集；先移出 Hub，再检查所有上游流已收敛。
-				resp, _ := h.request("DELETE", "/api/v1/instances/"+h.ids[0]+"?history=retain", "", true)
-				requireStatus(t, resp, 200)
 			}
 			waitInactive(t, h.fakes[0])
 		})
@@ -885,5 +877,47 @@ func TestInstancesAlwaysManaged(t *testing.T) {
 	var count int
 	if err := h.app.DB.QueryRow("SELECT COUNT(*) FROM instances WHERE name='rejected'").Scan(&count); err != nil || count != 0 {
 		t.Fatalf("rejected creation persisted: count=%d err=%v", count, err)
+	}
+}
+
+func TestMetadataAndFailedUpdatesPreserveActiveStreams(t *testing.T) {
+	for _, tc := range []struct {
+		name, body string
+		status     int
+	}{
+		{"rename", `{"name":"renamed"}`, 200},
+		{"unchanged", `{}`, 200},
+		{"conflict", `{"name":"mock-1"}`, 409},
+		{"connection save failure", `{"secret":"changed"}`, 500},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := setup(t)
+			conn, _, err := h.ws(h.ids[0], "/logs", h.server.URL, true)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer conn.CloseNow()
+			ctx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
+			defer cancel()
+			if _, _, err := conn.Read(ctx); err != nil {
+				t.Fatal(err)
+			}
+			if tc.status == 500 {
+				if _, err := h.app.DB.Exec(`CREATE TRIGGER reject_instance_update BEFORE UPDATE ON instances BEGIN SELECT RAISE(ABORT,'injected failure'); END`); err != nil {
+					t.Fatal(err)
+				}
+			}
+			resp, _ := h.request("PATCH", "/api/v1/instances/"+h.ids[0], tc.body, true)
+			requireStatus(t, resp, tc.status)
+			for range 3 {
+				if _, _, err := conn.Read(ctx); err != nil {
+					t.Fatal("metadata or failed update interrupted stream", err)
+				}
+			}
+			var generation int64
+			if err := h.app.DB.QueryRow("SELECT generation FROM instances WHERE id=?", h.ids[0]).Scan(&generation); err != nil || generation != 1 {
+				t.Fatal("generation changed", generation, err)
+			}
+		})
 	}
 }

@@ -22,6 +22,10 @@ func (r *repository) List(context.Context) ([]instance.Instance, error) {
 	return items, nil
 }
 
+func (r *repository) ListRetained(context.Context) ([]instance.Retained, error) {
+	return []instance.Retained{}, nil
+}
+
 func (r *repository) Save(_ context.Context, item instance.Instance, _ string) error {
 	if r.fail {
 		return errors.New("injected write failure")
@@ -54,8 +58,8 @@ func TestRegistryLifecycle(t *testing.T) {
 	if _, err := s.Update(t.Context(), item.ID, instance.Patch{Name: stringPointer("renamed")}); err != nil {
 		t.Fatal(err)
 	}
-	if previous.Err() == nil {
-		t.Fatal("old generation still alive")
+	if previous.Err() != nil {
+		t.Fatal("renaming interrupted the existing generation")
 	}
 	if _, err := s.Update(t.Context(), item.ID, instance.Patch{Enabled: &disabled}); !errors.Is(err, instance.ErrInvalid) {
 		t.Fatalf("disabled request accepted: %v", err)
@@ -70,6 +74,23 @@ func TestRegistryLifecycle(t *testing.T) {
 	}
 	if _, _, err := s.Acquire(item.ID); err != nil {
 		t.Fatal("previous generation not recovered after write failure")
+	}
+	if previous.Err() != nil {
+		t.Fatal("failed update interrupted the existing generation")
+	}
+	if _, err := s.Update(t.Context(), item.ID, instance.Patch{ControllerURL: stringPointer("http://127.0.0.1:9091")}); err == nil {
+		t.Fatal("failed connection update accepted")
+	}
+	current, currentContext, _ := s.Acquire(item.ID)
+	if previous.Err() != nil || currentContext != previous || current.Generation != item.Generation {
+		t.Fatal("failed connection update changed generation")
+	}
+	repo.fail = false
+	if _, err := s.Update(t.Context(), item.ID, instance.Patch{ControllerURL: stringPointer("http://127.0.0.1:9091")}); err != nil {
+		t.Fatal(err)
+	}
+	if previous.Err() == nil {
+		t.Fatal("connection change did not cancel old generation")
 	}
 	if err := s.Delete(t.Context(), item.ID, ""); !errors.Is(err, instance.ErrInvalid) {
 		t.Fatal("missing retention choice accepted")

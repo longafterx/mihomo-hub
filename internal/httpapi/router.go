@@ -96,6 +96,14 @@ func New(d Dependencies) *gin.Engine {
 	}
 	platform.GET("/system/status", a.systemStatus)
 	platform.GET("/instances", a.list)
+	platform.GET("/instances/retained", func(c *gin.Context) {
+		items, err := a.Instances.ListRetained(c.Request.Context())
+		if err != nil {
+			serviceError(c, err)
+			return
+		}
+		respond(c, http.StatusOK, items)
+	})
 	platform.POST("/instances", a.csrf, a.create)
 	platform.POST("/instances/test", a.csrf, a.testDraft)
 	platform.GET("/instances/:id", a.get)

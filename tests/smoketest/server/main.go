@@ -5,6 +5,7 @@ package main
 
 import (
 	"context"
+	"crypto/x509"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -40,7 +41,20 @@ func main() {
 func run() error {
 	static := flag.String("static", "", "path to the unchanged XD static build")
 	localController := flag.String("local-controller", "", "optional loopback-only disposable Controller")
+	tlsCA := flag.String("tls-ca", "", "test-only CA for an ephemeral HTTPS fixture")
 	flag.Parse()
+	if *tlsCA != "" {
+		// 仅集成测试入口支持本地 CA；配合测试进程的 x509usefallbackroots 验证真实 TLS。
+		data, err := os.ReadFile(*tlsCA)
+		if err != nil {
+			return err
+		}
+		roots := x509.NewCertPool()
+		if !roots.AppendCertsFromPEM(data) {
+			return fmt.Errorf("invalid fixture CA")
+		}
+		x509.SetFallbackRoots(roots)
+	}
 	gin.SetMode(gin.ReleaseMode)
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()

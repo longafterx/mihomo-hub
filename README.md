@@ -19,7 +19,7 @@ cp config.example.yaml config.local.yaml
 
 添加 Controller 后自动由 Hub 管理并持续采集。顶部下拉统一切换实例，状态标签仅展示，悬浮显示 Hub 到 Controller 的 HTTP 连接测试耗时。切换保持当前页面并刷新对应实例的数据，其他实例继续采集。用量页面沿用 XD 的维度切换、统计卡片、排行、趋势与可搜索排序的详情表，默认跟随当前实例，也可筛选全部或保留历史；覆盖率和采集缺口收在采集详情中。
 
-实例页以列表为入口，新增/编辑使用独立弹窗。地址只需填写 IP/主机和端口，新增自动使用 HTTP，编辑保留已有协议；密钥明确选择保留、替换或移除。连接错误区分拒绝连接、超时、鉴权、TLS 和响应格式。新增先测试连接，失败不创建。接入后管理与采集为固定行为，不提供启停开关；需要停止时删除实例。删除时可保留历史并释放名称，同名重建按新 UUID 独立记录。Schema 4 自动启用所有未删除的存量实例及采集，保留原密码、UUID、密钥和历史；已删除墓碑不恢复，升级前请备份。
+实例页以列表为入口，新增/编辑使用独立弹窗。地址只需填写 IP/主机和端口，新增和修改地址时自动识别 HTTP/HTTPS，未改变的地址保留已有协议；密钥明确选择保留、替换或移除。连接错误区分拒绝连接、超时、鉴权、TLS 和响应格式。新增先测试连接，失败不创建。接入后管理与采集为固定行为，不提供启停开关；需要停止时删除实例。删除时可保留历史并释放名称，同名重建按新 UUID 独立记录；“已保留的历史”支持后续确认并永久清理旧身份。改名不会中断采集，保存失败保留原连接。Schema 4 自动启用所有未删除的存量实例及采集，保留原密码、UUID、密钥和历史；已删除墓碑不恢复，升级前请备份。
 
 正式版本包使用下面的脚本写入真实版本元信息、生成 Linux amd64/arm64 包、SHA256SUMS、CycloneDX 依赖清单和第三方许可证：
 
@@ -43,7 +43,7 @@ docker compose ps
 
 `sh scripts/build-image.sh` 不带目录时使用源码多阶段构建，适合 CI 或内存充足的构建机。低内存服务器推荐直接封装已验证的发布目录。
 
-Compose 将端口绑定 `127.0.0.1:8080`，UID/GID 65532，根文件系统只读，数据在 named volume。启动后打开网页设置首次登录密码即可。镜像为 scratch + Go 可执行文件 + CA/许可证，没有 Node/shell。内置 `healthcheck` 查询 `/readyz`；待设置密码时同样可就绪，但管理 API 和 Gateway 保持认证。更改访问入口需设置 `MIHOMOHUB_PUBLIC_ORIGIN` 后重新创建容器。
+Compose 将端口绑定 `127.0.0.1:8080`，UID/GID 65532，根文件系统只读，数据在 named volume。启动后打开网页设置首次登录密码即可。镜像为 scratch + Go 可执行文件 + CA/许可证，没有 Node/shell。内置 `healthcheck` 查询 `/readyz`；待设置密码时同样可就绪，但管理 API 和 Gateway 保持认证。使用 `MIHOMOHUB_PORT` 改端口时默认 Origin 同步变化；使用域名或 HTTPS 入口时设置 `MIHOMOHUB_PUBLIC_ORIGIN` 后重新创建容器。
 
 使用 Tailscale HTTPS 入口时，按本机 Tailscale 版本配置 `tailscale serve` 反向代理到 `http://127.0.0.1:8080`，并将 public origin 设为对应的 `https://设备名.tailnet.ts.net`；用 Tailnet ACL 限制访问。Nginx/Caddy 同样支持，必须保留原 Host/Origin/Cookie，并转发 WebSocket Upgrade。具体见 [Runbook](docs/RUNBOOK.md)；不要直接公开未受限的 Controller。
 
@@ -69,6 +69,8 @@ sh scripts/generate-sql.sh
 python3 scripts/smoke-cli.py
 MIHOMOHUB_EMBED_SMOKE=1 node scripts/smoke-setup.mjs ../metacubexd
 MIHOMOHUB_EMBED_SMOKE=1 node scripts/smoke-navigation.mjs ../metacubexd
+MIHOMOHUB_EMBED_SMOKE=1 node scripts/smoke-regressions.mjs ../metacubexd
+python3 scripts/check-compose.py
 MIHOMOHUB_EMBED_SMOKE=1 node scripts/smoke-hub.mjs ../metacubexd
 python3 scripts/smoke-container.py
 DOCKER_CONTEXT=desktop-linux env -u DOCKER_HOST node scripts/smoke-controls.mjs ../metacubexd
@@ -76,4 +78,4 @@ DOCKER_CONTEXT=desktop-linux env -u DOCKER_HOST node scripts/smoke-controls.mjs 
 
 前端执行 `pnpm --filter @metacubexd/ui typecheck` 与 `test:unit`。CI 校验 sqlc 生成一致性、竞态、内嵌 UI 浏览器流程、Linux 双架构与容器，不自动推送镜像或发布 Release。
 
-[API](docs/API.md) · [配置](docs/CONFIG.md) · [运维](docs/RUNBOOK.md) · [首次使用验证](docs/FIRST-RUN-VERIFICATION.md) · [P0 验收](docs/P0-VERIFICATION.md) · [P1 验收](docs/P1-VERIFICATION.md) · [P2 验收](docs/P2-VERIFICATION.md) · [P3 验收](docs/P3-VERIFICATION.md) · [Controller/DNS 验收](docs/CONTROLLER-CONTROL-VERIFICATION.md) · [第三方许可](docs/THIRD-PARTY-NOTICES.md)
+[API](docs/API.md) · [配置](docs/CONFIG.md) · [运维](docs/RUNBOOK.md) · [缺陷修复验收](docs/DEFECTS-VERIFICATION.md) · [首次使用验证](docs/FIRST-RUN-VERIFICATION.md) · [P0 验收](docs/P0-VERIFICATION.md) · [P1 验收](docs/P1-VERIFICATION.md) · [P2 验收](docs/P2-VERIFICATION.md) · [P3 验收](docs/P3-VERIFICATION.md) · [Controller/DNS 验收](docs/CONTROLLER-CONTROL-VERIFICATION.md) · [第三方许可](docs/THIRD-PARTY-NOTICES.md)

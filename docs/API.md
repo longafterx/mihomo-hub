@@ -32,6 +32,7 @@ Cookie 名为 `mihomohub_session`，Path=/，SameSite=Strict，HTTPS Origin 下 
 | `POST /api/v1/instances` | 201，创建实例 |
 | `POST /api/v1/instances/test` | 200，只读验证未保存的连接配置，不新增或修改实例 |
 | `GET /api/v1/instances/{id}` | 200，详情 |
+| `GET /api/v1/instances/retained` | 200，已删除实例目录，仅 ID、名称、删除时刻 |
 | `GET /api/v1/instances/{id}/config` | 200，仅管理员编辑时按需读取 `controller_url`，不返回 Secret |
 | `PATCH /api/v1/instances/{id}` | 200，部分更新 |
 | `DELETE /api/v1/instances/{id}?history=retain\|purge` | 200，删除结果 |
@@ -63,13 +64,13 @@ PATCH 允许上述字段，同样禁止关闭管理或采集；省略 Secret 保
 
 常规列表、详情和变更响应不包含 Controller URL 或 Secret。仅管理员编辑配置接口返回 `controller_url`；Secret 永不回传。时间使用 UTC Unix 毫秒。找不到实例返回 404，同名冲突 409，输入/网络策略/删除选项无效返回 400，持久化失败 500。
 
-`retain` 创建删除墓碑并移除 URL/密文，保留实例 ID 和名称供后续历史表关联；名称不再占用，可以重新新增；新实例分配新 UUID，不继承旧历史。`purge` 物理删除。P1 中所有历史表通过外键关联，purge 会级联清理；retain 保留无凭据墓碑及历史，单管理员仍可按 ID 查询。未指定选项拒绝删除。主动 `/test` 已实现只读版本探测，详见末尾说明。状态与历史接口见下文。
+`retain` 创建删除墓碑并移除 URL/密文，保留实例 ID 和名称供后续历史表关联；名称不再占用，可以重新新增；新实例分配新 UUID，不继承旧历史。`purge` 物理删除，也适用于已经 retain 的身份；不存在或已清理的 ID 返回 404。实例管理页“已保留的历史”提供带确认的清理入口，不影响同名新实例。P1 中所有历史表通过外键关联，purge 会级联清理；retain 保留无凭据墓碑及历史，单管理员仍可按 ID 查询。未指定选项拒绝删除。主动 `/test` 已实现只读版本探测，详见末尾说明。状态与历史接口见下文。
 
-`POST /api/v1/instances/test` 要求 Session、CSRF 和同源校验，接受 `instance_id?`、`controller_url?`、`secret?`。指定实例时省略字段沿用已保存配置（包括密钥）；`secret: ""` 明确测试无密钥连接。未指定实例时必须提供 URL。沿用 Gateway 地址和端口策略，包含 DNS 与拨号检查，最多 5 秒，只读取 `/version`。成功返回 `reachable/version`；失败 502，按原因返回 `controller_connection_refused`、`controller_timeout`、`controller_auth_failed`、`controller_dns_failed`、`controller_tls_failed`、`controller_redirected`、`controller_http_error`、`controller_invalid_response` 或 `controller_unavailable`，不回显上游错误。测试写审计但不修改注册表、generation、凭据或历史。
+`POST /api/v1/instances/test` 要求 Session、CSRF 和同源校验，接受 `instance_id?`、`controller_url?`、`secret?`、`auto_detect?`。指定实例时省略字段沿用已保存配置（包括密钥）；`secret: ""` 明确测试无密钥连接。未指定实例时必须提供 URL。沿用 Gateway 地址和端口策略，包含 DNS 与拨号检查，最多 5 秒，只读取 `/version`。成功返回 `reachable/version/controller_url`；`auto_detect: true` 先执行不携带凭据的 TLS 握手，可信 HTTPS 直接使用，只有明确收到 HTTP 响应才尝试内网 HTTP；证书错误和握手中断不降级。失败 502，按原因返回 `controller_connection_refused`、`controller_timeout`、`controller_auth_failed`、`controller_dns_failed`、`controller_tls_failed`、`controller_redirected`、`controller_http_error`、`controller_invalid_response` 或 `controller_unavailable`，不回显上游错误。测试写审计但不修改注册表、generation、凭据或历史。
 
-前端地址表单只要求 IP/主机与端口（默认 9090），新增自动使用 HTTP，编辑拆分已有地址并保留已有 HTTP/HTTPS 协议；底层 API 继续使用 controller_url，浏览器运行 Endpoint 不变。
+前端地址表单只要求 IP/主机与端口（默认 9090），新增及修改地址时由后端识别 HTTP/HTTPS，编辑未改变的地址仍保留原协议；底层 API 继续使用 controller_url，浏览器运行 Endpoint 不变。
 
-前端新增先测试再提交，失败不创建实例；新增、编辑与列表没有管理/采集开关。移出 Hub 使用删除并明确选择历史保留或清理。编辑中的测试仅验证当前表单，保存是独立操作。前端采用 POST/PATCH/DELETE 的提交结果更新列表，旧轮询不得覆盖变更，列表刷新失败不得解释为写入失败。网络中断导致写响应未知时，提示先刷新确认结果，避免盲目重试。
+前端新增或修改连接地址先测试再提交，失败不创建或替换连接地址；新增、编辑与列表没有管理/采集开关。移出 Hub 使用删除并明确选择历史保留或清理。编辑中的测试仅验证当前表单，保存是独立操作。前端采用 POST/PATCH/DELETE 的提交结果更新列表，旧轮询不得覆盖变更，列表刷新失败不得解释为写入失败。网络中断导致写响应未知时，提示先刷新确认结果，避免盲目重试。
 
 Schema 3 将名称唯一约束改为 `WHERE deleted_at_ms IS NULL` 的唯一索引。启动时通过事务重建父表并保留所有 UUID/凭据/历史引用；迁移期间暂关外键以避免级联删除，完成后恢复。旧二进制拒绝打开新 schema；恢复旧版需同时恢复迁移前备份。
 
@@ -189,3 +190,11 @@ DNS 可编辑字段为 enable、listen、enhanced-mode（fake-ip/redir-host）�
 `GET /api/v1/meta` 要求 Session，返回 `version/backend_commit/frontend_commit/frontend_embedded/build_time/api_version/schema_version`。开发构建的 frontend_commit 为空；静态目录覆盖模式的 embedded=false。正式构建写入两个仓库的实际 Commit。原 P0 的 `frontend_contract_commit` 字段已由实际 `frontend_commit` 替代。
 
 `POST /api/v1/instances/{id}/test` 要求 Session、同源请求和 CSRF，受平台变更速率限制，并写入审计。只请求已注册且启用的 Controller `/version`，5 秒超时，不跟随重定向；最多读取 64KiB。成功返回 `{reachable:true,version:"v1.19.33"}`，失败返回不含目标/密钥/原始响应的 502。禁用实例为 403，不存在为 404。变更实例时取消旧 generation 的测试请求。此测试不修改配置，不启动后台采集。
+
+## 更新连续性与会话恢复
+
+仅修改名称、提交相同连接参数不递增 generation，也不重建采集与 Gateway 流。连接参数实际变化先原子保存，保存失败保留原会话；保存成功后递增 generation，数据库写入检查拒绝旧采样，随后取消旧会话。删除、密钥变更、注销与服务关闭仍会撤销关联连接。
+
+平台客户端遇到明确的 403 `csrf_failed` 时合并刷新 `/auth/me` 并最多重发一次，适用于另一个标签页重新登录后 Cookie 已更新、旧页仍缓存旧 CSRF 的场景。该拒绝发生在执行变更之前；网络中断、普通 403、5xx 均不重试变更。
+
+历史查询显式 `instance_ids` 最多选择 256 个；省略或使用 `all` 的全局汇总不受历史身份总数 256 的限制，仍受时间范围、点数、分页与查询超时限制。

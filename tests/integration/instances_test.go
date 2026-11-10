@@ -14,6 +14,50 @@ import (
 	"github.com/longafterx/mihomo-hub/internal/testutil/fakemihomo"
 )
 
+func TestRetainedHistoryCanBePurgedLater(t *testing.T) {
+	h := setup(t)
+	id, active := h.ids[0], h.ids[1]
+	resp, _ := h.request("GET", "/api/v1/instances/retained", "", false)
+	requireStatus(t, resp, 401)
+	resp, _ = h.request("DELETE", "/api/v1/instances/"+id+"?history=retain", "", true)
+	requireStatus(t, resp, 200)
+	replacement := h.register(h.fakes[0].Server.URL, h.fakes[0].Secret, h.fakes[0].Label)
+	resp, data := h.request("GET", "/api/v1/instances/retained", "", true)
+	requireStatus(t, resp, 200)
+	if !bytes.Contains(data, []byte(id)) || bytes.Contains(data, []byte(active)) || bytes.Contains(data, []byte("secret")) {
+		t.Fatal("invalid retained catalog", string(data))
+	}
+	resp, _ = h.request("DELETE", "/api/v1/instances/"+id+"?history=purge", "", false)
+	requireStatus(t, resp, 401)
+	// 永久清理与审计同事务，审计失败不能把保留历史提前删除。
+	_, err := h.app.DB.Exec(`CREATE TRIGGER reject_purge_audit BEFORE INSERT ON audit_events
+        WHEN NEW.action='instance.delete.purge' BEGIN SELECT RAISE(ABORT,'injected failure'); END`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, _ = h.request("DELETE", "/api/v1/instances/"+id+"?history=purge", "", true)
+	requireStatus(t, resp, 500)
+	var preserved int
+	if err := h.app.DB.QueryRow("SELECT count(*) FROM instances WHERE id=?", id).Scan(&preserved); err != nil || preserved != 1 {
+		t.Fatal("failed purge lost retained identity", preserved, err)
+	}
+	if _, err := h.app.DB.Exec("DROP TRIGGER reject_purge_audit"); err != nil {
+		t.Fatal(err)
+	}
+	resp, _ = h.request("DELETE", "/api/v1/instances/"+id+"?history=purge", "", true)
+	requireStatus(t, resp, 200)
+	var remaining int
+	if err := h.app.DB.QueryRow("SELECT count(*) FROM instances WHERE id=?", id).Scan(&remaining); err != nil || remaining != 0 {
+		t.Fatal("retained identity not purged", remaining, err)
+	}
+	resp, _ = h.request("GET", "/api/v1/instances/"+active, "", true)
+	requireStatus(t, resp, 200)
+	resp, _ = h.request("GET", "/api/v1/instances/"+replacement, "", true)
+	requireStatus(t, resp, 200)
+	resp, _ = h.request("DELETE", "/api/v1/instances/"+id+"?history=purge", "", true)
+	requireStatus(t, resp, 404)
+}
+
 func TestDraftProbeFailureCodes(t *testing.T) {
 	h := setup(t)
 	for _, tc := range []struct {
@@ -176,4 +220,25 @@ func TestRecreateRetainedInstanceWithoutSecret(t *testing.T) {
 	requireStatus(t, resp, http.StatusNotFound)
 	resp, _ = h.request("POST", "/api/v1/instances", string(body), true)
 	requireStatus(t, resp, http.StatusConflict)
+}
+
+func TestAutomaticDraftProbeReturnsResolvedURL(t *testing.T) {
+	h := setup(t)
+	body, err := json.Marshal(map[string]any{"controller_url": h.fakes[0].Server.URL, "secret": h.fakes[0].Secret, "auto_detect": true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, data := h.request("POST", "/api/v1/instances/test", string(body), true)
+	requireStatus(t, resp, 200)
+	var result struct {
+		Data struct {
+			URL string `json:"controller_url"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(data, &result); err != nil || result.Data.URL != h.fakes[0].Server.URL {
+		t.Fatal("protocol not resolved", string(data), err)
+	}
+	if bytes.Contains(data, []byte(h.fakes[0].Secret)) {
+		t.Fatal("secret leaked")
+	}
 }

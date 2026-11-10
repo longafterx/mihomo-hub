@@ -52,8 +52,20 @@ type Patch struct {
 
 type Repository interface {
 	List(context.Context) ([]Instance, error)
+	ListRetained(context.Context) ([]Retained, error)
 	Save(context.Context, Instance, string) error
 	Delete(context.Context, string, string) error
+}
+
+// Retained 是已删除实例的历史目录，不包含连接地址和凭据。
+type Retained struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	DeletedAtMS int64  `json:"deleted_at_ms"`
+}
+
+func (s *Service) ListRetained(ctx context.Context) ([]Retained, error) {
+	return s.repo.ListRetained(ctx)
 }
 
 type generation struct {
@@ -96,6 +108,9 @@ func (s *Service) publish(item Instance) {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if old, ok := s.items[item.ID]; ok {
+		old.cancel()
+	}
 	s.items[item.ID] = generation{instance: item, ctx: ctx, cancel: cancel}
 	s.notify()
 }
@@ -215,14 +230,26 @@ func (s *Service) Update(ctx context.Context, id string, patch Patch) (Instance,
 	if strings.TrimSpace(item.Name) == "" || len(item.Name) > 128 {
 		return Instance{}, ErrInvalid
 	}
-	s.block(id)
+	connectionChanged := item.ControllerURL != previous.ControllerURL || item.Secret != previous.Secret
 	item.UpdatedAtMS = time.Now().UTC().UnixMilli()
-	item.Generation++
+	if connectionChanged {
+		item.Generation++
+	}
+	// 先提交再替换会话：失败保存不能打断原连接；新 generation 在数据库中隔离旧样本。
 	if err := s.repo.Save(ctx, item, "instance.update"); err != nil {
-		s.publish(previous)
 		return Instance{}, err
 	}
-	s.publish(item)
+	if connectionChanged {
+		s.publish(item)
+	} else {
+		// 名称等元数据不改变采集会话，也不重建浏览器正在使用的 REST/WS。
+		s.mu.Lock()
+		current := s.items[id]
+		current.instance = item
+		s.items[id] = current
+		s.mu.Unlock()
+		s.notify()
+	}
 	return s.Get(id)
 }
 
@@ -239,6 +266,10 @@ func (s *Service) Delete(ctx context.Context, id, history string) error {
 	defer s.writes.Unlock()
 	previous, err := s.Get(id)
 	if err != nil {
+		if errors.Is(err, ErrNotFound) && history == "purge" {
+			// 已删除身份仍可永久清理；是否存在由持久层在同一事务中检查。
+			return s.repo.Delete(ctx, id, history)
+		}
 		return err
 	}
 	s.block(id)

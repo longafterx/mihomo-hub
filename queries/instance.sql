@@ -11,7 +11,11 @@ ON CONFLICT(id) DO UPDATE SET name=excluded.name, controller_url=excluded.contro
   secret_ciphertext=excluded.secret_ciphertext, enabled=excluded.enabled,
   collect_enabled=excluded.collect_enabled, updated_at_ms=excluded.updated_at_ms, generation=excluded.generation;
 
--- name: DeleteInstance :exec
+-- name: ListRetainedInstances :many
+SELECT id, name, deleted_at_ms FROM instances
+WHERE deleted_at_ms IS NOT NULL ORDER BY deleted_at_ms DESC, id;
+
+-- name: DeleteInstance :execrows
 DELETE FROM instances WHERE id = ?;
 
 -- name: RetainInstance :exec

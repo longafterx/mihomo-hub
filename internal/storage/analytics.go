@@ -94,7 +94,8 @@ func (s Analytics) query(ctx context.Context, q *generated.Queries, p analytics.
 	if len(requested) > 0 && len(items) != len(requested) {
 		return analytics.Result{}, analytics.ErrNotFound
 	}
-	if len(items) > 256 {
+	// 256 仅限制客户端显式选择的 ID 数量，不能限制全局汇总中的历史身份。
+	if len(requested) > 256 {
 		return analytics.Result{}, fmt.Errorf("%w: select at most 256 historical instances", analytics.ErrInvalid)
 	}
 	ids := []string{}

@@ -1,5 +1,5 @@
 repository: https://github.com/longafterx/metacubexd.git
-ref: "b0cfe3a21fe0d590f6f3d90440218505118fc8eb"
+ref: "1bc7f58648a9a8e31f8649106ae26f1b752042cf"
 upstream_ref: "4fd88e621722fc9274f0120c53ee1b13ba2d706e"
 expected_api_contract: mihomohub-api-v1
 node: "24.19.0"

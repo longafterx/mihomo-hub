@@ -2,10 +2,12 @@ package mihomo_test
 
 import (
 	"context"
+	"crypto/x509"
 	"github.com/longafterx/mihomo-hub/internal/mihomo"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -88,6 +90,57 @@ func TestProbeLimitsAndSecretBoundary(t *testing.T) {
 			}
 			if tc.ok && version != "v1.19.33" {
 				t.Fatal(version)
+			}
+		})
+	}
+}
+
+func TestDetectProbeSelectsProtocolWithoutDowngradingTLS(t *testing.T) {
+	t.Parallel()
+	for _, name := range []string{"http", "trusted TLS", "untrusted TLS", "wrong secret"} {
+		t.Run(name, func(t *testing.T) {
+			var authorized atomic.Int64
+			handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Header.Get("Authorization") != "" {
+					authorized.Add(1)
+				}
+				if r.Header.Get("Authorization") != "Bearer fixture-secret" {
+					w.WriteHeader(401)
+					return
+				}
+				w.Write([]byte(`{"version":"v1.19.33"}`))
+			})
+			var server *httptest.Server
+			policy := mihomo.Policy{}
+			if name == "http" || name == "wrong secret" {
+				server = httptest.NewServer(handler)
+			} else {
+				server = httptest.NewTLSServer(handler)
+				if name == "trusted TLS" {
+					policy.TLSRootCAs = x509.NewCertPool()
+					policy.TLSRootCAs.AddCert(server.Certificate())
+				}
+			}
+			defer server.Close()
+			secret := "fixture-secret"
+			if name == "wrong secret" {
+				secret = "wrong"
+			}
+			version, target, err := policy.DetectProbe(t.Context(), strings.Replace(server.URL, "https://", "http://", 1), secret)
+			if name == "untrusted TLS" {
+				if err == nil || authorized.Load() != 0 {
+					t.Fatal("invalid certificate downgraded or exposed credentials", err)
+				}
+				return
+			}
+			if name == "wrong secret" {
+				if err == nil {
+					t.Fatal("authentication accepted")
+				}
+				return
+			}
+			if err != nil || target != server.URL || version != "v1.19.33" || authorized.Load() != 1 {
+				t.Fatal(version, target, err, authorized.Load())
 			}
 		})
 	}

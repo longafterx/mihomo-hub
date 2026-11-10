@@ -19,6 +19,7 @@ func (a *api) testDraft(c *gin.Context) {
 		InstanceID    string  `json:"instance_id"`
 		ControllerURL *string `json:"controller_url"`
 		Secret        *string `json:"secret"`
+		AutoDetect    bool    `json:"auto_detect"`
 	}
 	if !decode(c, &input, a.Config.Gateway.MaxBodyBytes) {
 		return
@@ -44,7 +45,18 @@ func (a *api) testDraft(c *gin.Context) {
 		serviceError(c, instance.ErrInvalid)
 		return
 	}
-	if err := policy.Validate(ctx, item.ControllerURL); err != nil {
+	validationURL := item.ControllerURL
+	if input.AutoDetect {
+		target, err := policy.Parse(validationURL)
+		if err != nil {
+			serviceError(c, instance.ErrInvalid)
+			return
+		}
+		// 自动探测尚未确定协议；先按 TLS 校验地址策略，明文回退仍由探测器再次校验。
+		target.Scheme = "https"
+		validationURL = target.String()
+	}
+	if err := policy.Validate(ctx, validationURL); err != nil {
 		switch {
 		case errors.Is(err, mihomo.ErrControllerDNS):
 			fail(c, http.StatusBadGateway, "controller_dns_failed", "controller DNS lookup failed")
@@ -61,13 +73,20 @@ func (a *api) testDraft(c *gin.Context) {
 	}
 	// 测试未保存的表单仅 GET /version，不创建实例或切换现有采集器。
 	started := time.Now()
-	version, err := policy.Probe(ctx, item.ControllerURL, item.Secret)
+	var version string
+	var err error
+	if input.AutoDetect {
+		version, item.ControllerURL, err = policy.DetectProbe(ctx, item.ControllerURL, item.Secret)
+	} else {
+		version, err = policy.Probe(ctx, item.ControllerURL, item.Secret)
+	}
 	if err != nil {
 		probeError(c, err)
 		return
 	}
 	respond(c, http.StatusOK, gin.H{
 		"reachable": true, "version": version, "latency_ms": time.Since(started).Milliseconds(),
+		"controller_url": item.ControllerURL,
 	})
 }
 

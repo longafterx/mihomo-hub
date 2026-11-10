@@ -233,14 +233,23 @@ func TestCollectorProcessRestartAndURLGeneration(t *testing.T) {
 		t.Fatal("controller change spike", got)
 	}
 	previousStarts := b.starts.Load()
-	// A failed registry transaction republishes the old configuration and must
-	// restart its canceled worker even though the persisted generation is unchanged.
+	// 元数据保存失败不能打断已经在线的采集器，也不能把正常流量变成恢复候选。
 	resp, _ = h.request("PATCH", "/api/v1/instances/"+id, `{"name":"mock-0"}`, true)
 	requireStatus(t, resp, 409)
 	b.set(120, 60)
 	eventually(t, "worker survives failed update", func() bool {
-		return status(h, id) == "online" && b.active.Load() == 1 && b.starts.Load() > previousStarts
+		return status(h, id) == "online" && counter(t, h, id) == 40
 	})
+	if b.starts.Load() != previousStarts {
+		t.Fatal("failed metadata update restarted collector")
+	}
+	resp, _ = h.request("PATCH", "/api/v1/instances/"+id, `{"name":"renamed-collector"}`, true)
+	requireStatus(t, resp, 200)
+	b.set(140, 70)
+	eventually(t, "rename preserves traffic delta", func() bool { return counter(t, h, id) == 60 })
+	if b.starts.Load() != previousStarts {
+		t.Fatal("rename restarted collector")
+	}
 	resp, _ = h.request("PATCH", "/api/v1/instances/"+id, `{"secret":"invalid-fixture"}`, true)
 	requireStatus(t, resp, 200)
 	eventually(t, "secret rotation closes old socket", func() bool { return b.active.Load() == 0 && status(h, id) == "degraded" })

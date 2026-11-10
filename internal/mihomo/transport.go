@@ -3,6 +3,7 @@ package mihomo
 import (
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"net"
@@ -25,6 +26,7 @@ type Policy struct {
 	AllowPublic  bool
 	AllowedPorts []int
 	Resolver     Resolver
+	TLSRootCAs   *x509.CertPool
 }
 
 func (p Policy) Parse(raw string) (*url.URL, error) {
@@ -181,6 +183,7 @@ func (p Policy) Transport() *http.Transport {
 		return nil, fmt.Errorf("dial controller: %w", lastErr)
 	}
 	transport := &http.Transport{
+		TLSClientConfig: &tls.Config{MinVersion: tls.VersionTLS12, RootCAs: p.TLSRootCAs},
 		DialContext: func(ctx context.Context, network, address string) (net.Conn, error) {
 			return dial(ctx, network, address, false)
 		},

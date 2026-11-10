@@ -5,7 +5,7 @@ services:
     ports:
       - "127.0.0.1:${MIHOMOHUB_PORT:-8080}:8080"
     environment:
-      MIHOMOHUB_PUBLIC_ORIGIN: ${MIHOMOHUB_PUBLIC_ORIGIN:-http://127.0.0.1:8080}
+      MIHOMOHUB_PUBLIC_ORIGIN: ${MIHOMOHUB_PUBLIC_ORIGIN:-http://127.0.0.1:${MIHOMOHUB_PORT:-8080}}
     volumes:
       - hub-data:/var/lib/mihomo-hub
     read_only: true

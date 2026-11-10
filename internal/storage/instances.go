@@ -18,6 +18,18 @@ type Instances struct {
 	AEAD cipher.AEAD
 }
 
+func (r *Instances) ListRetained(ctx context.Context) ([]instance.Retained, error) {
+	rows, err := generated.New(r.DB).ListRetainedInstances(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("query retained instances: %w", err)
+	}
+	items := make([]instance.Retained, 0, len(rows))
+	for _, row := range rows {
+		items = append(items, instance.Retained{ID: row.ID, Name: row.Name, DeletedAtMS: row.DeletedAtMs.Int64})
+	}
+	return items, nil
+}
+
 func (r *Instances) List(ctx context.Context) ([]instance.Instance, error) {
 	rows, err := generated.New(r.DB).ListInstances(ctx)
 	if err != nil {
@@ -94,7 +106,11 @@ func (r *Instances) Delete(ctx context.Context, id, history string) error {
 			ID: id, UpdatedAtMs: now, DeletedAtMs: sql.NullInt64{Int64: now, Valid: true},
 		})
 	} else {
-		err = q.DeleteInstance(ctx, id)
+		var affected int64
+		affected, err = q.DeleteInstance(ctx, id)
+		if err == nil && affected == 0 {
+			return instance.ErrNotFound
+		}
 	}
 	if err != nil {
 		return fmt.Errorf("delete instance: %w", err)

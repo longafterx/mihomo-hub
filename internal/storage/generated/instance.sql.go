@@ -10,13 +10,16 @@ import (
 	"database/sql"
 )
 
-const deleteInstance = `-- name: DeleteInstance :exec
+const deleteInstance = `-- name: DeleteInstance :execrows
 DELETE FROM instances WHERE id = ?
 `
 
-func (q *Queries) DeleteInstance(ctx context.Context, id string) error {
-	_, err := q.db.ExecContext(ctx, deleteInstance, id)
-	return err
+func (q *Queries) DeleteInstance(ctx context.Context, id string) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteInstance, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const getAdmin = `-- name: GetAdmin :one
@@ -102,6 +105,40 @@ func (q *Queries) ListInstances(ctx context.Context) ([]ListInstancesRow, error)
 			&i.UpdatedAtMs,
 			&i.Generation,
 		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listRetainedInstances = `-- name: ListRetainedInstances :many
+SELECT id, name, deleted_at_ms FROM instances
+WHERE deleted_at_ms IS NOT NULL ORDER BY deleted_at_ms DESC, id
+`
+
+type ListRetainedInstancesRow struct {
+	ID          string
+	Name        string
+	DeletedAtMs sql.NullInt64
+}
+
+func (q *Queries) ListRetainedInstances(ctx context.Context) ([]ListRetainedInstancesRow, error) {
+	rows, err := q.db.QueryContext(ctx, listRetainedInstances)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListRetainedInstancesRow{}
+	for rows.Next() {
+		var i ListRetainedInstancesRow
+		if err := rows.Scan(&i.ID, &i.Name, &i.DeletedAtMs); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

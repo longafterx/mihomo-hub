@@ -92,9 +92,16 @@ try:
     request('/api/v1/instances/'+item['id']+'?history=retain',method='DELETE',csrf=token)
     replacement=json.loads(request('/api/v1/instances',{'name':'container-persisted','controller_url':'http://127.0.0.1:1','secret':''},csrf=token)[1])['data']
     assert replacement['id']!=item['id'] and not replacement['has_secret']
+    # 删除后的历史仍可单独清理，且不能误删同名的新实例。
+    retained=json.loads(request('/api/v1/instances/retained')[1])['data']
+    assert [old['id'] for old in retained]==[item['id']]
+    assert 'controller_url' not in retained[0] and 'secret' not in retained[0]
+    request('/api/v1/instances/'+item['id']+'?history=purge',method='DELETE',csrf=token)
+    assert json.loads(request('/api/v1/instances/retained')[1])['data']==[]
+    assert json.loads(request('/api/v1/instances/'+replacement['id'])[1])['data']['id']==replacement['id']
     # scratch 镜像中只有 Go 可执行文件、CA 与许可证，没有 Node/shell。
     assert subprocess.run(['docker','exec',name,'/usr/bin/node','--version'],env=environment,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL).returncode!=0
-    print('PASS: nonroot/read-only container, automatic initialization/browser setup, embedded UI, encrypted persistence, restart, backup, retained name reuse/new UUID/empty Secret, no Node runtime')
+    print('PASS: nonroot/read-only container, automatic initialization/browser setup, embedded UI, encrypted persistence, restart, backup, retained name reuse/new UUID/empty Secret, retained-history purge isolation, no Node runtime')
 finally:
     if tunnel: tunnel.terminate(); tunnel.wait(timeout=10)
     subprocess.run(['docker','rm','-f',name],env=environment,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)

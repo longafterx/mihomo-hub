@@ -4,6 +4,7 @@ package storage_test
 
 import (
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -11,6 +12,42 @@ import (
 	"github.com/longafterx/mihomo-hub/internal/storage"
 	"github.com/longafterx/mihomo-hub/internal/telemetry"
 )
+
+func TestAllHistoryIncludesMoreThan256RetainedInstances(t *testing.T) {
+	t.Parallel()
+	db, _ := telemetryDB(t)
+	for i := range 257 {
+		id := fmt.Sprintf("retained-%d", i)
+		_, err := db.Exec(`INSERT INTO instances
+            (id,name,controller_url,secret_ciphertext,enabled,collect_enabled,created_at_ms,updated_at_ms,deleted_at_ms)
+            VALUES(?,?,'',x'',0,0,0,0,1)`, id, id)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	_, err := db.Exec(`INSERT INTO traffic_minute(instance_id,bucket_ms,total_upload,observed_ms)
+        VALUES('retained-256',0,17,1000)`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	repo := storage.Analytics{DB: db, MaxInterval: 5 * time.Second}
+	for _, kind := range []string{"summary", "traffic", "top", "coverage", "connections", "gaps"} {
+		t.Run(kind, func(t *testing.T) {
+			result, err := repo.Query(t.Context(), analytics.Query{
+				Kind: kind, From: 0, To: 60000, Step: "1m", Dimension: "host", Limit: 20,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(result.Meta.Coverage) != 259 {
+				t.Fatalf("missing historical identities: %d", len(result.Meta.Coverage))
+			}
+			if kind == "summary" && result.Data.(analytics.Totals).Upload != 17 {
+				t.Fatal("global summary omitted retained traffic", result.Data)
+			}
+		})
+	}
+}
 
 func TestHistoricalQueriesIsolationCoverageAndRetainedDeletion(t *testing.T) {
 	t.Parallel()
