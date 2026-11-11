@@ -1,6 +1,6 @@
 services:
   mihomo-hub:
-    image: ${MIHOMOHUB_IMAGE:-mihomo-hub:0.3.0}
+    image: ${MIHOMOHUB_IMAGE:-ghcr.io/longafterx/mihomo-hub:0.3.0}
     restart: unless-stopped
     ports:
       - "127.0.0.1:${MIHOMOHUB_PORT:-8080}:8080"

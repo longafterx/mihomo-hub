@@ -42,7 +42,9 @@ umask 077
 
 ## 容器与权限
 
-低内存机器推荐 `sh scripts/build-image.sh dist/mihomo-hub_0.3.0_linux_amd64` 封装已验证的对应架构发布目录，无需在目标机器编译。内存充足的构建机可从锁定前端生成静态资源后执行 `sh scripts/build-image.sh`，使用完整多阶段构建。直接执行 `docker compose up -d`，打开网页设置首次登录密码。镜像默认非 root 65532:65532；named volume 首次挂载使用镜像目录权限。bind mount 需预先由管理员创建 0700 目录并设置 `chown 65532:65532`。
+部署机器执行 `docker compose pull && docker compose up -d` 即可使用 GHCR 上的固定版本镜像，支持 Linux amd64/arm64，无需编译。首次打开网页设置登录密码。
+
+需要从源码构建时，低内存机器可用 `sh scripts/build-image.sh dist/mihomo-hub_0.3.0_linux_amd64` 封装对应架构发布目录；内存充足的构建机可从锁定前端生成静态资源后执行 `sh scripts/build-image.sh`。本地镜像使用 `MIHOMOHUB_IMAGE=mihomo-hub:0.3.0 docker compose up -d` 启动。镜像默认非 root 65532:65532；named volume 首次挂载使用镜像目录权限。bind mount 需预先由管理员创建 0700 目录并设置 `chown 65532:65532`。
 
 自动初始化只创建空库和主密钥；密码始终由首次网页提交设置，没有默认密码。设置完成前，仅开放登录引导、公开静态资源及探活，管理 API 和 Gateway 仍要求认证。多个浏览器同时设置时只有一个成功，其他浏览器切回登录。首次入口同样使用下文的 loopback、Tailnet ACL 或受限反代配置，确保由部署者完成密码设置。`/readyz` 在待设置密码阶段也返回就绪，可用 `GET /api/v1/auth/setup` 查看是否仍需设置。
 

@@ -33,15 +33,17 @@ sha256sum -c SHA256SUMS
 
 ## Docker Compose
 
-先完成上面的前端/发布构建，再封装对应宿主架构的发布目录（arm64 主机改为 linux_arm64）：
+发布镜像位于 `ghcr.io/longafterx/mihomo-hub`，支持 Linux amd64/arm64，Docker 自动选择架构。Compose 默认固定 `0.3.0`；`latest` 跟随最新稳定版。
 
 ```sh
-sh scripts/build-image.sh dist/mihomo-hub_0.3.0_linux_amd64
+docker compose pull
 docker compose up -d
 docker compose ps
 ```
 
-`sh scripts/build-image.sh` 不带目录时使用源码多阶段构建，适合 CI 或内存充足的构建机。低内存服务器推荐直接封装已验证的发布目录。
+打开 `http://127.0.0.1:8080` 设置首次登录密码，无需本机构建前端或执行 `init`。需要固定其他版本时设置 `MIHOMOHUB_IMAGE=ghcr.io/longafterx/mihomo-hub:<版本或摘要>`。
+
+从源码构建本地镜像时，先完成上面的发布构建，再运行 `sh scripts/build-image.sh dist/mihomo-hub_0.3.0_linux_amd64`（arm64 改为 `linux_arm64`），使用 `MIHOMOHUB_IMAGE=mihomo-hub:0.3.0 docker compose up -d` 启动。`sh scripts/build-image.sh` 不带目录时使用源码多阶段构建。
 
 Compose 将端口绑定 `127.0.0.1:8080`，UID/GID 65532，根文件系统只读，数据在 named volume。启动后打开网页设置首次登录密码即可。镜像为 scratch + Go 可执行文件 + CA/许可证，没有 Node/shell。内置 `healthcheck` 查询 `/readyz`；待设置密码时同样可就绪，但管理 API 和 Gateway 保持认证。使用 `MIHOMOHUB_PORT` 改端口时默认 Origin 同步变化；使用域名或 HTTPS 入口时设置 `MIHOMOHUB_PUBLIC_ORIGIN` 后重新创建容器。
 
@@ -76,6 +78,6 @@ python3 scripts/smoke-container.py
 DOCKER_CONTEXT=desktop-linux env -u DOCKER_HOST node scripts/smoke-controls.mjs ../metacubexd
 ```
 
-前端执行 `pnpm --filter @metacubexd/ui typecheck` 与 `test:unit`。CI 校验 sqlc 生成一致性、竞态、内嵌 UI 浏览器流程、Linux 双架构与容器，不自动推送镜像或发布 Release。
+前端执行 `pnpm --filter @metacubexd/ui typecheck` 与 `test:unit`。CI 校验 sqlc 生成一致性、竞态、内嵌 UI 浏览器流程、Linux 双架构与容器。推送 `vX.Y.Z` 标签后，全部检查通过才发布 GHCR 镜像；手动运行仅验证。前端固定提交须先推送至 Fork，发布步骤见 [发布说明](docs/RELEASING.md)。
 
 [API](docs/API.md) · [配置](docs/CONFIG.md) · [运维](docs/RUNBOOK.md) · [缺陷修复验收](docs/DEFECTS-VERIFICATION.md) · [首次使用验证](docs/FIRST-RUN-VERIFICATION.md) · [P0 验收](docs/P0-VERIFICATION.md) · [P1 验收](docs/P1-VERIFICATION.md) · [P2 验收](docs/P2-VERIFICATION.md) · [P3 验收](docs/P3-VERIFICATION.md) · [Controller/DNS 验收](docs/CONTROLLER-CONTROL-VERIFICATION.md) · [第三方许可](docs/THIRD-PARTY-NOTICES.md)
