@@ -42,7 +42,7 @@ umask 077
 
 ## 容器与权限
 
-部署机器执行 `docker compose pull && docker compose up -d` 即可使用 GHCR 上的固定版本镜像，支持 Linux amd64/arm64，无需编译。首次打开网页设置登录密码。
+部署机器执行 `docker compose pull && docker compose up -d` 即可使用 GHCR 上的 `latest` 镜像，支持 Linux amd64/arm64，无需编译。默认访问 `http://127.0.0.1:11235`，首次打开网页设置登录密码。需要固定版本时设置 `MIHOMOHUB_IMAGE=ghcr.io/longafterx/mihomo-hub:<版本或摘要>`。
 
 需要从源码构建时，低内存机器可用 `sh scripts/build-image.sh dist/mihomo-hub_0.3.0_linux_amd64` 封装对应架构发布目录；内存充足的构建机可从锁定前端生成静态资源后执行 `sh scripts/build-image.sh`。本地镜像使用 `MIHOMOHUB_IMAGE=mihomo-hub:0.3.0 docker compose up -d` 启动。镜像默认非 root 65532:65532；named volume 首次挂载使用镜像目录权限。bind mount 需预先由管理员创建 0700 目录并设置 `chown 65532:65532`。
 
@@ -54,13 +54,13 @@ umask 077
 
 ## HTTPS、反向代理与 Tailscale
 
-使用独立 Origin 根路径。Tailscale Serve 代理到本机 `http://127.0.0.1:8080`，公网入口通过 Tailnet ACL 控制；`MIHOMOHUB_PUBLIC_ORIGIN=https://设备名.tailnet.ts.net` 必须与浏览器实际 Origin 完全一致。根据已安装 Tailscale 版本使用对应的 Serve 命令；不要把端口直接绑定公网。容器修改环境后 `docker compose up -d --force-recreate`。
+使用独立 Origin 根路径。Compose 部署时，Tailscale Serve 代理到本机 `http://127.0.0.1:11235`，公网入口通过 Tailnet ACL 控制；`MIHOMOHUB_PUBLIC_ORIGIN=https://设备名.tailnet.ts.net` 必须与浏览器实际 Origin 完全一致。根据已安装 Tailscale 版本使用对应的 Serve 命令；不要把端口直接绑定公网。容器修改环境后 `docker compose up -d --force-recreate`。
 
 Nginx 示例中的 `server_name` 和证书路径由运维填写，TLS 应由可信证书终止：
 
 ```nginx
 location / {
-    proxy_pass http://127.0.0.1:8080;
+    proxy_pass http://127.0.0.1:11235;
     proxy_http_version 1.1;
     proxy_set_header Host $http_host;
     proxy_set_header Upgrade $http_upgrade;

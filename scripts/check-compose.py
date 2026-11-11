@@ -11,6 +11,8 @@ for port, origin in [(None, None), ('18081', None), ('18081', 'https://hub.examp
         environment['MIHOMOHUB_PUBLIC_ORIGIN'] = origin
     config = json.loads(subprocess.check_output(['docker', 'compose', 'config', '--format', 'json'], env=environment))
     service = config['services']['mihomo-hub']
-    assert service['environment']['MIHOMOHUB_PUBLIC_ORIGIN'] == (origin or f'http://127.0.0.1:{port or "8080"}')
-    assert str(service['ports'][0]['published']) == (port or '8080')
-print('PASS: default/custom Compose port matches Origin; explicit HTTPS Origin preserved')
+    assert service['image'] == 'ghcr.io/longafterx/mihomo-hub:latest'
+    assert service['environment']['MIHOMOHUB_PUBLIC_ORIGIN'] == (origin or f'http://127.0.0.1:{port or "11235"}')
+    assert str(service['ports'][0]['published']) == (port or '11235')
+    assert service['ports'][0]['target'] == 8080
+print('PASS: latest image, default port 11235, custom port matches Origin, explicit HTTPS Origin preserved')
