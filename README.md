@@ -14,7 +14,7 @@ docker compose pull
 docker compose up -d
 ```
 
-打开 **http://127.0.0.1:11235**，首次访问设置登录密码，然后添加 Mihomo 实例。无需执行 `init`。
+打开 http://127.0.0.1:11235 ，首次访问设置登录密码，然后添加 Mihomo 实例。无需执行 `init`。
 
 服务器通过 IP 远程访问时，将 `compose.yaml` 的端口映射改为 `"11235:8080"`，并在同目录创建 `.env`，填写浏览器实际访问的地址：
 

@@ -11,3 +11,6 @@
 __pycache__/
 /internal/web/dist/
 /build/notices/
+# 本地设计与技术栈文档（包含旧版设计文件名）
+/docs/MihomoHub-DESIGN*.md
+/docs/MihomoHub-TECH_STACK.md
