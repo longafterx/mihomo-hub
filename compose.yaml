@@ -3,8 +3,10 @@ services:
     image: ${MIHOMOHUB_IMAGE:-ghcr.io/longafterx/mihomo-hub:latest}
     restart: unless-stopped
     ports:
-      - "127.0.0.1:${MIHOMOHUB_PORT:-11235}:8080"
+      - "127.0.0.1:${MIHOMOHUB_PORT:-11235}:11235"
     environment:
+      # 与端口映射保持一致，也兼容升级前缓存的镜像。
+      MIHOMOHUB_LISTEN: 0.0.0.0:11235
       MIHOMOHUB_PUBLIC_ORIGIN: ${MIHOMOHUB_PUBLIC_ORIGIN:-http://127.0.0.1:${MIHOMOHUB_PORT:-11235}}
     volumes:
       - hub-data:/var/lib/mihomo-hub

@@ -34,8 +34,11 @@ func TestLoad(t *testing.T) {
 			if (err == nil) != tt.ok {
 				t.Fatalf("Load error = %v, want success %v", err, tt.ok)
 			}
-			if tt.ok && c.Server.Listen != "127.0.0.1:8080" {
-				t.Fatal("default loopback listener lost")
+			if tt.ok && c.Server.Listen != "127.0.0.1:11235" {
+				t.Fatal("default loopback listener must use port 11235")
+			}
+			if tt.ok && c.Server.PublicOrigin != "http://127.0.0.1:11235" {
+				t.Fatal("default public origin must match the loopback listener")
 			}
 		})
 	}

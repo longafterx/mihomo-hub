@@ -1,6 +1,6 @@
 server:
-  listen: 127.0.0.1:8080
-  public_origin: http://127.0.0.1:8080
+  listen: 127.0.0.1:11235
+  public_origin: http://127.0.0.1:11235
   # Development only: override the embedded Hub static UI.
   static_dir: ""
 database:

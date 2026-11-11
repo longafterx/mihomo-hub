@@ -4,8 +4,8 @@
 
 | YAML 键 | 默认值 | 环境变量/说明 |
 |---|---|---|
-| `server.listen` | `127.0.0.1:8080` | `MIHOMOHUB_LISTEN` |
-| `server.public_origin` | `http://127.0.0.1:8080` | `MIHOMOHUB_PUBLIC_ORIGIN`；仅 Origin，不带路径或末尾斜杠 |
+| `server.listen` | `127.0.0.1:11235` | `MIHOMOHUB_LISTEN` |
+| `server.public_origin` | `http://127.0.0.1:11235` | `MIHOMOHUB_PUBLIC_ORIGIN`；仅 Origin，不带路径或末尾斜杠 |
 | `server.static_dir` | 空 | `MIHOMOHUB_STATIC_DIR`；开发用外部 Hub 静态目录；空值使用内嵌 UI（源码构建则显示开发说明） |
 | `database.path` | `data/mihomo-hub.db` | `MIHOMOHUB_DATABASE_PATH` |
 | `database.busy_timeout_ms` | `5000` | 1–60000；通过 DSN 对每条物理连接设置 |

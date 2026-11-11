@@ -40,11 +40,11 @@ COPY --from=build --chown=65532:65532 /out/data /var/lib/mihomo-hub
 COPY build/notices /usr/share/licenses/mihomo-hub
 USER 65532:65532
 WORKDIR /var/lib/mihomo-hub
-ENV MIHOMOHUB_LISTEN=0.0.0.0:8080 \
+ENV MIHOMOHUB_LISTEN=0.0.0.0:11235 \
     MIHOMOHUB_DATABASE_PATH=/var/lib/mihomo-hub/mihomo-hub.db \
     MIHOMOHUB_MASTER_KEY_FILE=/var/lib/mihomo-hub/secrets/master.key
 VOLUME ["/var/lib/mihomo-hub"]
-EXPOSE 8080
+EXPOSE 11235
 HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 CMD ["/mihomo-hub", "healthcheck"]
 ENTRYPOINT ["/mihomo-hub"]
 CMD ["serve"]

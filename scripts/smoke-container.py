@@ -32,12 +32,12 @@ def free_port():
 try:
     docker('volume','create',volume)
     # 先确定随机映射端口，再以相同端口重建服务；Origin 校验必须与访问入口完全一致。
-    docker('run','-d','--name',name,'--read-only','--cap-drop=ALL','--security-opt=no-new-privileges:true','--pids-limit=128','--memory=512m','-p','127.0.0.1::8080','-v',volume+':/var/lib/mihomo-hub',args.image)
-    port=int(docker('port',name,'8080/tcp').rsplit(':',1)[1])
+    docker('run','-d','--name',name,'--read-only','--cap-drop=ALL','--security-opt=no-new-privileges:true','--pids-limit=128','--memory=512m','-p','127.0.0.1::11235','-v',volume+':/var/lib/mihomo-hub',args.image)
+    port=int(docker('port',name,'11235/tcp').rsplit(':',1)[1])
     local_port=free_port() if args.remote else port
     origin=f'http://127.0.0.1:{local_port}'
     docker('rm','-f',name)
-    docker('run','-d','--name',name,'--read-only','--cap-drop=ALL','--security-opt=no-new-privileges:true','--pids-limit=128','--memory=512m','-p',f'127.0.0.1:{port}:8080','-e','MIHOMOHUB_PUBLIC_ORIGIN='+origin,'-v',volume+':/var/lib/mihomo-hub',args.image)
+    docker('run','-d','--name',name,'--read-only','--cap-drop=ALL','--security-opt=no-new-privileges:true','--pids-limit=128','--memory=512m','-p',f'127.0.0.1:{port}:11235','-e','MIHOMOHUB_PUBLIC_ORIGIN='+origin,'-v',volume+':/var/lib/mihomo-hub',args.image)
     if args.remote:
         tunnel=subprocess.Popen(['ssh','-o','BatchMode=yes','-o','ExitOnForwardFailure=yes','-N','-L',f'127.0.0.1:{local_port}:127.0.0.1:{port}',args.remote],stdout=subprocess.DEVNULL,stderr=subprocess.PIPE)
     cookies=http.cookiejar.CookieJar()
@@ -63,6 +63,8 @@ try:
     assert info['Config']['User']=='65532:65532'
     assert info['HostConfig']['ReadonlyRootfs']
     assert info['HostConfig']['CapDrop']==['ALL']
+    assert info['Config']['ExposedPorts']=={'11235/tcp':{}}
+    docker('exec',name,'/mihomo-hub','healthcheck')
     version=json.loads(docker('exec',name,'/mihomo-hub','version'))
     assert version['frontend_embedded'] is True
     assert len(version['frontend_commit'])==40

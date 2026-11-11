@@ -62,8 +62,9 @@ type Config struct {
 
 func Default() Config {
 	var c Config
-	c.Server.Listen = "127.0.0.1:8080"
-	c.Server.PublicOrigin = "http://127.0.0.1:8080"
+	// 二进制与容器统一使用 11235；Compose 仍可单独覆盖宿主端口。
+	c.Server.Listen = "127.0.0.1:11235"
+	c.Server.PublicOrigin = "http://127.0.0.1:11235"
 	c.Database.Path = "data/mihomo-hub.db"
 	c.Database.BusyTimeoutMS = 5000
 	c.Security.MasterKeyFile = "data/secrets/master.key"
