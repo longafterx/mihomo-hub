@@ -24,7 +24,7 @@ func (s Telemetry) LoadCursor(ctx context.Context, id string) (telemetry.Cursor,
 	if err != nil {
 		return telemetry.Cursor{}, fmt.Errorf("load cursor: %w", err)
 	}
-	return telemetry.Cursor{InstanceID: id, EpochID: r.EpochID, SampleID: r.SampleID, SourceID: r.SourceID,
+	return telemetry.Cursor{InstanceID: id, EpochID: r.EpochID, SourceID: r.SourceID,
 		Upload: r.UploadTotal, Download: r.DownloadTotal, At: r.AtMs}, nil
 }
 
@@ -58,12 +58,10 @@ func (s Telemetry) apply(ctx context.Context, batches []telemetry.Batch) error {
 	}
 	defer tx.Rollback()
 	q := generated.New(tx)
-	type hourKey struct {
-		id string
-		at int64
-	}
-	hours := map[hourKey]bool{}
 	for _, b := range batches {
+		if b.Cursor == nil {
+			continue
+		}
 		generation, err := q.GetGeneration(ctx, b.InstanceID)
 		if errors.Is(err, sql.ErrNoRows) {
 			continue
@@ -74,133 +72,105 @@ func (s Telemetry) apply(ctx context.Context, batches []telemetry.Batch) error {
 		if generation != b.Generation {
 			continue
 		}
-		if b.Cursor != nil {
-			old, err := q.GetCursor(ctx, b.InstanceID)
-			if err != nil && !errors.Is(err, sql.ErrNoRows) {
-				return err
-			}
-			if err == nil && old.AtMs >= b.Cursor.At {
-				continue
-			}
-			if b.EpochReason != "" {
-				if err := q.InsertEpoch(ctx, generated.InsertEpochParams{InstanceID: b.InstanceID, EpochID: b.Cursor.EpochID,
-					StartedAtMs: b.At, Reason: b.EpochReason}); err != nil {
-					return err
-				}
-			}
-			if b.ClosePrevious {
-				if err := q.CloseObservedConnections(ctx, b.InstanceID); err != nil {
-					return err
-				}
-			}
-			for _, m := range b.Minutes {
-				err := q.UpsertMinute(ctx, generated.UpsertMinuteParams{
-					InstanceID:         b.InstanceID,
-					BucketMs:           m.Bucket,
-					TotalUpload:        m.Upload,
-					TotalDownload:      m.Download,
-					AttributedUpload:   m.AttributedUpload,
-					AttributedDownload: m.AttributedDownload,
-					ObservedMs:         m.ObservedMS,
-					Gap:                boolInt(m.Gap),
-				})
-				if err != nil {
-					return fmt.Errorf("write minute: %w", err)
-				}
-				hours[hourKey{id: b.InstanceID, at: m.Bucket / 3600000 * 3600000}] = true
-			}
-			for _, d := range b.Dimensions {
-				err := q.UpsertDimensionMinute(ctx, generated.UpsertDimensionMinuteParams{
-					InstanceID:    b.InstanceID,
-					BucketMs:      d.Bucket,
-					Dimension:     d.Name,
-					Value:         d.Value,
-					UploadBytes:   d.Upload,
-					DownloadBytes: d.Download,
-				})
-				if err != nil {
-					return fmt.Errorf("write dimensions: %w", err)
-				}
-			}
-			for _, r := range b.Records {
-				var opened *int64
-				if t, err := time.Parse(time.RFC3339Nano, r.Start); err == nil {
-					v := t.UnixMilli()
-					opened = &v
-				}
-				err := q.UpsertConnection(ctx, generated.UpsertConnectionParams{
-					InstanceID:    b.InstanceID,
-					LifecycleID:   r.LifecycleID,
-					EpochID:       r.EpochID,
-					ConnectionID:  r.ConnectionID,
-					OpenedAtMs:    nullableInt(opened),
-					FirstSeenAtMs: r.FirstSeen,
-					LastSeenAtMs:  r.LastSeen,
-					ClosedAtMs:    nullableInt(r.ClosedAt),
-					CloseReason:   r.CloseReason,
-					Host:          r.Host,
-					Proxy:         r.Proxy,
-					Rule:          r.Rule,
-					Process:       r.Process,
-					SrcIp:         r.SourceIP,
-					UploadBytes:   r.Upload,
-					DownloadBytes: r.Download,
-				})
-				if err != nil {
-					return fmt.Errorf("write lifecycle: %w", err)
-				}
-			}
-			for _, gap := range b.Gaps {
-				err := q.InsertGap(ctx, generated.InsertGapParams{
-					ID:                     gap.ID,
-					InstanceID:             b.InstanceID,
-					EpochID:                gap.EpochID,
-					FromMs:                 gap.From,
-					ToMs:                   gap.To,
-					Reason:                 gap.Reason,
-					Resolution:             gap.Resolution,
-					CandidateUploadBytes:   nullableInt(gap.CandidateUpload),
-					CandidateDownloadBytes: nullableInt(gap.CandidateDownload),
-				})
-				if err != nil {
-					return fmt.Errorf("write gap: %w", err)
-				}
-			}
-			c := b.Cursor
-			if err := q.SaveCursor(ctx, generated.SaveCursorParams{InstanceID: b.InstanceID, EpochID: c.EpochID, SampleID: c.SampleID,
-				SourceID: c.SourceID, UploadTotal: c.Upload, DownloadTotal: c.Download, AtMs: c.At}); err != nil {
+		old, err := q.GetCursor(ctx, b.InstanceID)
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return err
+		}
+		if err == nil && old.AtMs >= b.Cursor.At {
+			continue
+		}
+		if b.ClosePrevious {
+			if err := q.CloseObservedConnections(ctx, b.InstanceID); err != nil {
 				return err
 			}
 		}
-		if err := q.SaveCollectorState(ctx, generated.SaveCollectorStateParams{InstanceID: b.InstanceID, Generation: b.Generation,
-			Status: b.Status, ErrorCode: b.ErrorCode, AtMs: b.At}); err != nil {
+		// 分钟、小时使用同一份增量，并与游标原子提交；上方的时间戳检查保证重放不会重复累计。
+		for _, m := range b.Minutes {
+			minute := generated.UpsertMinuteParams{
+				InstanceID:         b.InstanceID,
+				BucketMs:           m.Bucket,
+				TotalUpload:        m.Upload,
+				TotalDownload:      m.Download,
+				AttributedUpload:   m.AttributedUpload,
+				AttributedDownload: m.AttributedDownload,
+				ObservedMs:         m.ObservedMS,
+				Gap:                boolInt(m.Gap),
+			}
+			if err := q.UpsertMinute(ctx, minute); err != nil {
+				return fmt.Errorf("write minute: %w", err)
+			}
+			hour := generated.UpsertHourParams(minute)
+			hour.BucketMs = m.Bucket / 3600000 * 3600000
+			if err := q.UpsertHour(ctx, hour); err != nil {
+				return fmt.Errorf("write hour: %w", err)
+			}
+		}
+		for _, d := range b.Dimensions {
+			minute := generated.UpsertDimensionMinuteParams{
+				InstanceID:    b.InstanceID,
+				BucketMs:      d.Bucket,
+				Dimension:     d.Name,
+				Value:         d.Value,
+				UploadBytes:   d.Upload,
+				DownloadBytes: d.Download,
+			}
+			if err := q.UpsertDimensionMinute(ctx, minute); err != nil {
+				return fmt.Errorf("write dimensions: %w", err)
+			}
+			hour := generated.UpsertDimensionHourParams(minute)
+			hour.BucketMs = d.Bucket / 3600000 * 3600000
+			if err := q.UpsertDimensionHour(ctx, hour); err != nil {
+				return fmt.Errorf("write hour dimensions: %w", err)
+			}
+		}
+		for _, r := range b.Records {
+			var opened *int64
+			if t, err := time.Parse(time.RFC3339Nano, r.Start); err == nil {
+				v := t.UnixMilli()
+				opened = &v
+			}
+			err := q.UpsertConnection(ctx, generated.UpsertConnectionParams{
+				InstanceID:    b.InstanceID,
+				LifecycleID:   r.LifecycleID,
+				EpochID:       r.EpochID,
+				ConnectionID:  r.ConnectionID,
+				OpenedAtMs:    nullableInt(opened),
+				FirstSeenAtMs: r.FirstSeen,
+				LastSeenAtMs:  r.LastSeen,
+				ClosedAtMs:    nullableInt(r.ClosedAt),
+				CloseReason:   r.CloseReason,
+				Host:          r.Host,
+				Proxy:         r.Proxy,
+				Rule:          r.Rule,
+				Process:       r.Process,
+				SrcIp:         r.SourceIP,
+				UploadBytes:   r.Upload,
+				DownloadBytes: r.Download,
+			})
+			if err != nil {
+				return fmt.Errorf("write lifecycle: %w", err)
+			}
+		}
+		for _, gap := range b.Gaps {
+			err := q.InsertGap(ctx, generated.InsertGapParams{
+				ID:                     gap.ID,
+				InstanceID:             b.InstanceID,
+				EpochID:                gap.EpochID,
+				FromMs:                 gap.From,
+				ToMs:                   gap.To,
+				Reason:                 gap.Reason,
+				Resolution:             gap.Resolution,
+				CandidateUploadBytes:   nullableInt(gap.CandidateUpload),
+				CandidateDownloadBytes: nullableInt(gap.CandidateDownload),
+			})
+			if err != nil {
+				return fmt.Errorf("write gap: %w", err)
+			}
+		}
+		c := b.Cursor
+		if err := q.SaveCursor(ctx, generated.SaveCursorParams{InstanceID: b.InstanceID, EpochID: c.EpochID,
+			SourceID: c.SourceID, UploadTotal: c.Upload, DownloadTotal: c.Download, AtMs: c.At}); err != nil {
 			return err
-		}
-	}
-	for h := range hours {
-		err := q.RecomputeHour(ctx, generated.RecomputeHourParams{
-			InstanceID: h.id,
-			BucketMs:   h.at,
-			FromMs:     h.at,
-			ToMs:       h.at + 3600000,
-		})
-		if err != nil {
-			return fmt.Errorf("recompute hour: %w", err)
-		}
-		if err := q.DeleteDimensionHour(ctx, generated.DeleteDimensionHourParams{
-			InstanceID: h.id,
-			BucketMs:   h.at,
-		}); err != nil {
-			return err
-		}
-		err = q.RecomputeDimensionHour(ctx, generated.RecomputeDimensionHourParams{
-			InstanceID: h.id,
-			BucketMs:   h.at,
-			FromMs:     h.at,
-			ToMs:       h.at + 3600000,
-		})
-		if err != nil {
-			return fmt.Errorf("recompute dimension hour: %w", err)
 		}
 	}
 	if err := tx.Commit(); err != nil {

@@ -19,8 +19,8 @@ func TestAllHistoryIncludesMoreThan256RetainedInstances(t *testing.T) {
 	for i := range 257 {
 		id := fmt.Sprintf("retained-%d", i)
 		_, err := db.Exec(`INSERT INTO instances
-            (id,name,controller_url,secret_ciphertext,enabled,collect_enabled,created_at_ms,updated_at_ms,deleted_at_ms)
-            VALUES(?,?,'',x'',0,0,0,0,1)`, id, id)
+            (id,name,controller_url,secret_ciphertext,created_at_ms,updated_at_ms,deleted_at_ms)
+            VALUES(?,?,'',x'',0,0,1)`, id, id)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -116,7 +116,8 @@ func TestHistoricalQueriesIsolationCoverageAndRetainedDeletion(t *testing.T) {
 	if len(gaps) != 2 || gaps[0].To != nil || result.Meta.GapCount != 2 {
 		t.Fatal("open gap absent", gaps)
 	}
-	if _, err := db.Exec("UPDATE instances SET deleted_at_ms=62000,enabled=0,collect_enabled=0,controller_url='',secret_ciphertext=x'' WHERE id='one'"); err != nil {
+	if _, err := db.Exec(`UPDATE instances SET deleted_at_ms=62000,controller_url='',secret_ciphertext=x''
+		WHERE id='one'`); err != nil {
 		t.Fatal(err)
 	}
 	query.Kind = "coverage"

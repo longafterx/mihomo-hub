@@ -1,5 +1,5 @@
 -- name: AnalyticsInstances :many
-SELECT id,name,enabled,collect_enabled,deleted_at_ms,created_at_ms,updated_at_ms FROM instances
+SELECT id,name,deleted_at_ms,created_at_ms,updated_at_ms FROM instances
 WHERE (sqlc.arg(ids)='[]' OR id IN (SELECT value FROM json_each(sqlc.arg(ids)))) ORDER BY id;
 
 -- name: AnalyticsMinute :many

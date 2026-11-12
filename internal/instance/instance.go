@@ -19,12 +19,13 @@ var (
 )
 
 type Instance struct {
-	ID              string `json:"id"`
-	Name            string `json:"name"`
-	ControllerURL   string `json:"-"`
-	Secret          string `json:"-"`
-	HasSecret       bool   `json:"has_secret"`
-	GatewayURL      string `json:"gateway_url"`
+	ID            string `json:"id"`
+	Name          string `json:"name"`
+	ControllerURL string `json:"-"`
+	Secret        string `json:"-"`
+	HasSecret     bool   `json:"has_secret"`
+	GatewayURL    string `json:"gateway_url"`
+	// 兼容旧版响应；接入的实例始终启用管理与采集，不再作为独立状态持久化。
 	Enabled         bool   `json:"enabled"`
 	CollectEnabled  bool   `json:"collect_enabled"`
 	CollectorStatus string `json:"collector_status"`
@@ -102,10 +103,8 @@ func (s *Service) publish(item Instance) {
 	ctx, cancel := context.WithCancel(s.root)
 	item.HasSecret = item.Secret != ""
 	item.GatewayURL = "/mihomo/" + item.ID
-	item.CollectorStatus = "disabled"
-	if item.Enabled && item.CollectEnabled {
-		item.CollectorStatus = "connecting"
-	}
+	item.Enabled, item.CollectEnabled = true, true
+	item.CollectorStatus = "connecting"
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if old, ok := s.items[item.ID]; ok {
@@ -153,7 +152,7 @@ func (s *Service) Acquire(id string) (Instance, context.Context, error) {
 	if !ok {
 		return Instance{}, nil, ErrNotFound
 	}
-	if !g.instance.Enabled || g.blocked {
+	if g.blocked {
 		return Instance{}, nil, ErrDisabled
 	}
 	return g.instance, g.ctx, nil

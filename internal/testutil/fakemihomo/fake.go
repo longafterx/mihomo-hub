@@ -36,8 +36,26 @@ type Fake struct {
 }
 
 func New(label, secret string) *Fake {
+	return newFake(label, secret, false)
+}
+
+// NewGateway 为协议透传测试隔离后台采集请求；测试浏览器通过 mihomo-test 子协议连接。
+// 正常采集与浏览器回归仍使用 New，不改变产品的自动采集行为。
+func NewGateway(label, secret string) *Fake {
+	return newFake(label, secret, true)
+}
+
+func newFake(label, secret string, gatewayOnly bool) *Fake {
 	f := &Fake{Secret: secret, Label: label, Observations: make(chan Observation, 256), selected: "DIRECT"}
-	f.Server = httptest.NewServer(http.HandlerFunc(f.serve))
+	f.Server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		collector := r.URL.Path == "/connections" && strings.EqualFold(r.Header.Get("Upgrade"), "websocket") &&
+			r.Header.Get("Sec-WebSocket-Protocol") == ""
+		if gatewayOnly && collector {
+			http.Error(w, "not a collector fixture", http.StatusNotFound)
+			return
+		}
+		f.serve(w, r)
+	}))
 	return f
 }
 

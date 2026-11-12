@@ -100,9 +100,7 @@ func (m *Manager) Run(ctx context.Context) {
 		sort.Slice(items, func(i, j int) bool { return items[i].ID < items[j].ID })
 		wanted := map[string]instance.Instance{}
 		for _, item := range items {
-			if item.Enabled && item.CollectEnabled {
-				wanted[item.ID] = item
-			}
+			wanted[item.ID] = item
 		}
 		for id, session := range sessions {
 			item, ok := wanted[id]
@@ -203,17 +201,7 @@ func (m *Manager) runInstance(ctx context.Context, item instance.Instance) {
 		st.LastErrorCode = code
 		st.ReconnectCount++
 		m.publish(item.ID, st)
-		state := telemetry.Batch{
-			InstanceID: item.ID,
-			Generation: item.Generation,
-			Status:     "degraded",
-			ErrorCode:  code,
-			At:         time.Now().UnixMilli(),
-		}
-		if err := m.writer.Submit(ctx, state); err != nil {
-			st.DroppedSamples++
-			m.publish(item.ID, st)
-		}
+		// 连接状态由内存状态接口提供；失败重连不再占用数据库写队列。
 		boundary = code
 		jitter := time.Duration(rand.Int64N(max(int64(backoff/4), 1)))
 		timer := time.NewTimer(backoff + jitter)

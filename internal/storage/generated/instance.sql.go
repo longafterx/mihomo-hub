@@ -68,7 +68,7 @@ func (q *Queries) InitializeAdmin(ctx context.Context, arg InitializeAdminParams
 }
 
 const listInstances = `-- name: ListInstances :many
-SELECT id, name, controller_url, secret_ciphertext, enabled, collect_enabled,
+SELECT id, name, controller_url, secret_ciphertext,
        created_at_ms, updated_at_ms, generation
 FROM instances WHERE deleted_at_ms IS NULL ORDER BY created_at_ms, id
 `
@@ -78,8 +78,6 @@ type ListInstancesRow struct {
 	Name             string
 	ControllerUrl    string
 	SecretCiphertext []byte
-	Enabled          int64
-	CollectEnabled   int64
 	CreatedAtMs      int64
 	UpdatedAtMs      int64
 	Generation       int64
@@ -99,8 +97,6 @@ func (q *Queries) ListInstances(ctx context.Context) ([]ListInstancesRow, error)
 			&i.Name,
 			&i.ControllerUrl,
 			&i.SecretCiphertext,
-			&i.Enabled,
-			&i.CollectEnabled,
 			&i.CreatedAtMs,
 			&i.UpdatedAtMs,
 			&i.Generation,
@@ -153,7 +149,7 @@ func (q *Queries) ListRetainedInstances(ctx context.Context) ([]ListRetainedInst
 }
 
 const retainInstance = `-- name: RetainInstance :exec
-UPDATE instances SET enabled=0, collect_enabled=0, controller_url='', secret_ciphertext=x'',
+UPDATE instances SET controller_url='', secret_ciphertext=x'',
   deleted_at_ms=?, updated_at_ms=? WHERE id=?
 `
 
@@ -170,11 +166,11 @@ func (q *Queries) RetainInstance(ctx context.Context, arg RetainInstanceParams) 
 
 const saveInstance = `-- name: SaveInstance :exec
 INSERT INTO instances
-  (id, name, controller_url, secret_ciphertext, enabled, collect_enabled, created_at_ms, updated_at_ms, generation)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  (id, name, controller_url, secret_ciphertext, created_at_ms, updated_at_ms, generation)
+VALUES (?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(id) DO UPDATE SET name=excluded.name, controller_url=excluded.controller_url,
-  secret_ciphertext=excluded.secret_ciphertext, enabled=excluded.enabled,
-  collect_enabled=excluded.collect_enabled, updated_at_ms=excluded.updated_at_ms, generation=excluded.generation
+  secret_ciphertext=excluded.secret_ciphertext,
+  updated_at_ms=excluded.updated_at_ms, generation=excluded.generation
 `
 
 type SaveInstanceParams struct {
@@ -182,8 +178,6 @@ type SaveInstanceParams struct {
 	Name             string
 	ControllerUrl    string
 	SecretCiphertext []byte
-	Enabled          int64
-	CollectEnabled   int64
 	CreatedAtMs      int64
 	UpdatedAtMs      int64
 	Generation       int64
@@ -195,8 +189,6 @@ func (q *Queries) SaveInstance(ctx context.Context, arg SaveInstanceParams) erro
 		arg.Name,
 		arg.ControllerUrl,
 		arg.SecretCiphertext,
-		arg.Enabled,
-		arg.CollectEnabled,
 		arg.CreatedAtMs,
 		arg.UpdatedAtMs,
 		arg.Generation,

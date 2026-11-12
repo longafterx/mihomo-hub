@@ -1,5 +1,6 @@
 -- +goose Up
 -- 接入 Hub 的存量实例统一进入管理和采集状态；删除墓碑仍保持停用。
+-- 同时递增配置代次以隔离旧采样，并以 Unix 毫秒记录本次配置更新时间。
 UPDATE instances SET enabled=1, collect_enabled=1, generation=generation+1,
   updated_at_ms=CAST(strftime('%s','now') AS INTEGER)*1000
 WHERE deleted_at_ms IS NULL AND (enabled=0 OR collect_enabled=0);

@@ -1,15 +1,15 @@
 -- name: ListInstances :many
-SELECT id, name, controller_url, secret_ciphertext, enabled, collect_enabled,
+SELECT id, name, controller_url, secret_ciphertext,
        created_at_ms, updated_at_ms, generation
 FROM instances WHERE deleted_at_ms IS NULL ORDER BY created_at_ms, id;
 
 -- name: SaveInstance :exec
 INSERT INTO instances
-  (id, name, controller_url, secret_ciphertext, enabled, collect_enabled, created_at_ms, updated_at_ms, generation)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  (id, name, controller_url, secret_ciphertext, created_at_ms, updated_at_ms, generation)
+VALUES (?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(id) DO UPDATE SET name=excluded.name, controller_url=excluded.controller_url,
-  secret_ciphertext=excluded.secret_ciphertext, enabled=excluded.enabled,
-  collect_enabled=excluded.collect_enabled, updated_at_ms=excluded.updated_at_ms, generation=excluded.generation;
+  secret_ciphertext=excluded.secret_ciphertext,
+  updated_at_ms=excluded.updated_at_ms, generation=excluded.generation;
 
 -- name: ListRetainedInstances :many
 SELECT id, name, deleted_at_ms FROM instances
@@ -19,7 +19,7 @@ WHERE deleted_at_ms IS NOT NULL ORDER BY deleted_at_ms DESC, id;
 DELETE FROM instances WHERE id = ?;
 
 -- name: RetainInstance :exec
-UPDATE instances SET enabled=0, collect_enabled=0, controller_url='', secret_ciphertext=x'',
+UPDATE instances SET controller_url='', secret_ciphertext=x'',
   deleted_at_ms=?, updated_at_ms=? WHERE id=?;
 
 -- name: WriteAudit :exec

@@ -24,7 +24,9 @@ func telemetryDB(t *testing.T) (*sql.DB, string) {
 	}
 	t.Cleanup(func() { db.Close() })
 	for _, id := range []string{"one", "two"} {
-		if _, err := db.Exec(`INSERT INTO instances(id,name,controller_url,secret_ciphertext,enabled,collect_enabled,created_at_ms,updated_at_ms) VALUES(?,?,?,x'',1,1,0,0)`, id, id, "http://127.0.0.1:9090"); err != nil {
+		if _, err := db.Exec(`INSERT INTO instances
+			(id,name,controller_url,secret_ciphertext,created_at_ms,updated_at_ms)
+			VALUES(?,?,?,x'',0,0)`, id, id, "http://127.0.0.1:9090"); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -71,8 +73,15 @@ func TestTelemetryAtomicReplayAndGeneration(t *testing.T) {
 	if err := s.Apply(t.Context(), []telemetry.Batch{b}); err == nil {
 		t.Fatal("injected failure accepted")
 	}
-	if n := scalar(t, db, "SELECT SUM(total_upload) FROM traffic_minute WHERE instance_id='one'"); n != 0 {
-		t.Fatal("partial aggregate committed", n)
+	for _, table := range []string{"traffic_minute", "traffic_hour"} {
+		if n := scalar(t, db, "SELECT SUM(total_upload) FROM "+table+" WHERE instance_id='one'"); n != 0 {
+			t.Fatal("partial aggregate committed", table, n)
+		}
+	}
+	for _, table := range []string{"traffic_dimension_minute", "traffic_dimension_hour"} {
+		if n := scalar(t, db, "SELECT COUNT(*) FROM "+table); n != 0 {
+			t.Fatal("partial dimensions committed", table, n)
+		}
 	}
 	cursor, err := s.LoadCursor(t.Context(), "one")
 	if err != nil || cursor.At != 60000 {
@@ -96,6 +105,238 @@ func TestTelemetryAtomicReplayAndGeneration(t *testing.T) {
 	mustApply(t, s, b)
 	if n := scalar(t, db, "SELECT COUNT(*) FROM connection_records WHERE connection_id='shared'"); n != 2 {
 		t.Fatal("cross-instance connection collision", n)
+	}
+}
+
+func TestDeletedInstanceRejectsQueuedSample(t *testing.T) {
+	for _, history := range []string{"retain", "purge"} {
+		t.Run(history, func(t *testing.T) {
+			t.Parallel()
+			db, _ := telemetryDB(t)
+			store := storage.Telemetry{DB: db}
+			engine := telemetry.New(telemetry.Cursor{InstanceID: "one"}, 5*time.Second)
+			baseline, engine := plan(
+				t,
+				engine,
+				60000,
+				100,
+			)
+			batch, engine := plan(
+				t,
+				engine,
+				61000,
+				120,
+			)
+			mustApply(
+				t,
+				store,
+				baseline,
+				batch,
+			)
+			queued, _ := plan(
+				t,
+				engine,
+				62000,
+				140,
+			)
+			if err := (&storage.Instances{DB: db}).Delete(t.Context(), "one", history); err != nil {
+				t.Fatal(err)
+			}
+			mustApply(t, store, queued)
+			if history == "purge" {
+				if n := scalar(t, db, "SELECT COUNT(*) FROM traffic_hour WHERE instance_id='one'"); n != 0 {
+					t.Fatal("queued sample recreated purged history", n)
+				}
+				return
+			}
+			if n := scalar(t, db, "SELECT total_upload FROM traffic_hour WHERE instance_id='one'"); n != 20 {
+				t.Fatal("queued sample changed retained history", n)
+			}
+			cursor, err := store.LoadCursor(t.Context(), "one")
+			if err != nil || cursor.At != 61000 {
+				t.Fatalf("queued sample advanced deleted instance cursor: %v", err)
+			}
+		})
+	}
+}
+
+func TestHourlyIncrementsAcrossBoundaryAndReplay(t *testing.T) {
+	t.Parallel()
+	db, _ := telemetryDB(t)
+	store := storage.Telemetry{DB: db}
+	engine := telemetry.New(telemetry.Cursor{InstanceID: "one"}, 5*time.Second)
+	batches := []telemetry.Batch{}
+	for _, sample := range []struct{ at, total int64 }{
+		{at: 3598500, total: 100},
+		{at: 3599500, total: 120},
+		{at: 3600500, total: 160},
+		{at: 3601500, total: 180},
+	} {
+		batch, next := plan(
+			t,
+			engine,
+			sample.at,
+			sample.total,
+		)
+		batches = append(batches, batch)
+		engine = next
+	}
+	mustApply(t, store, batches...)
+	// 整批重放和倒序重放都不得重复增加分钟、小时或维度流量。
+	mustApply(t, store, batches...)
+	mustApply(
+		t,
+		store,
+		batches[3],
+		batches[2],
+		batches[1],
+		batches[0],
+	)
+	for _, tt := range []struct {
+		name                       string
+		bucket, upload, attributed int64
+		observed, gap              int64
+	}{
+		{name: "previous hour", bucket: 0, upload: 20, attributed: 10, observed: 1500, gap: 1},
+		{name: "current hour", bucket: 3600000, upload: 60, attributed: 30, observed: 1500, gap: 0},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			var upload, download, attributed, attributedDownload, observed, gap int64
+			err := db.QueryRow(`SELECT total_upload,total_download,attributed_upload,
+				attributed_download,observed_ms,gap FROM traffic_hour WHERE instance_id='one' AND bucket_ms=?`,
+				tt.bucket,
+			).Scan(
+				&upload,
+				&download,
+				&attributed,
+				&attributedDownload,
+				&observed,
+				&gap,
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			totalsMatch := upload == tt.upload && download == tt.upload*2
+			attributionMatches := attributed == tt.attributed && attributedDownload == tt.attributed*2
+			if !totalsMatch || !attributionMatches || observed != tt.observed || gap != tt.gap {
+				t.Fatalf(
+					"unexpected hour: upload=%d attributed=%d observed=%d gap=%d",
+					upload,
+					attributed,
+					observed,
+					gap,
+				)
+			}
+			for _, dimension := range []string{"host", "proxy", "rule", "process", "src_ip"} {
+				n := scalar(
+					t,
+					db,
+					`SELECT upload_bytes FROM traffic_dimension_hour
+					WHERE instance_id='one' AND bucket_ms=? AND dimension=?`,
+					tt.bucket,
+					dimension,
+				)
+				if n != tt.attributed {
+					t.Fatal("hour dimension counted twice or assigned to wrong hour", dimension, n)
+				}
+			}
+		})
+	}
+}
+
+func TestHourlyTotalsPreservePrunedMinuteHistory(t *testing.T) {
+	t.Parallel()
+	db, _ := telemetryDB(t)
+	store := storage.Telemetry{DB: db}
+	engine := telemetry.New(telemetry.Cursor{InstanceID: "one"}, 5*time.Second)
+	for _, sample := range []struct{ at, total int64 }{
+		{at: 58000, total: 100}, {at: 59000, total: 120}, {at: 61000, total: 140},
+	} {
+		batch, next := plan(
+			t,
+			engine,
+			sample.at,
+			sample.total,
+		)
+		mustApply(t, store, batch)
+		engine = next
+	}
+	// 模拟小时内较早的分钟数据已过期，后续增量不能覆盖仍需保留的小时历史。
+	now := time.UnixMilli(60000).Add(24 * time.Hour)
+	if err := store.Prune(t.Context(), now, storage.Retention{
+		ConnectionsDays: 14, MinuteDays: 1, HourlyDays: 365,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if n := scalar(t, db, "SELECT COUNT(*) FROM traffic_minute WHERE bucket_ms=0"); n != 0 {
+		t.Fatal("fixture did not prune earlier minutes", n)
+	}
+	batch, _ := plan(
+		t,
+		engine,
+		62000,
+		160,
+	)
+	mustApply(t, store, batch)
+	if n := scalar(t, db, "SELECT total_upload FROM traffic_hour WHERE instance_id='one'"); n != 60 {
+		t.Fatal("hour lost pruned minute totals", n)
+	}
+	if n := scalar(t, db, `SELECT upload_bytes FROM traffic_dimension_hour
+		WHERE instance_id='one' AND dimension='host'`); n != 30 {
+		t.Fatal("hour dimension lost pruned minute totals", n)
+	}
+}
+
+func TestHourlyOverflowRollsBackSample(t *testing.T) {
+	for _, tt := range []struct {
+		name, query string
+	}{
+		{name: "total", query: "UPDATE traffic_hour SET total_upload=?"},
+		{name: "dimension", query: "UPDATE traffic_dimension_hour SET upload_bytes=?"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			db, _ := telemetryDB(t)
+			store := storage.Telemetry{DB: db}
+			engine := telemetry.New(telemetry.Cursor{InstanceID: "one"}, 5*time.Second)
+			baseline, engine := plan(
+				t,
+				engine,
+				60000,
+				100,
+			)
+			batch, engine := plan(
+				t,
+				engine,
+				61000,
+				120,
+			)
+			mustApply(
+				t,
+				store,
+				baseline,
+				batch,
+			)
+			if _, err := db.Exec(tt.query, int64(math.MaxInt64)); err != nil {
+				t.Fatal(err)
+			}
+			batch, _ = plan(
+				t,
+				engine,
+				62000,
+				140,
+			)
+			if err := store.Apply(t.Context(), []telemetry.Batch{batch}); err == nil {
+				t.Fatal("hourly integer overflow accepted")
+			}
+			if n := scalar(t, db, "SELECT SUM(total_upload) FROM traffic_minute"); n != 20 {
+				t.Fatal("failed hourly update committed minute totals", n)
+			}
+			cursor, err := store.LoadCursor(t.Context(), "one")
+			if err != nil || cursor.At != 61000 {
+				t.Fatalf("failed hourly update advanced cursor: %v", err)
+			}
+		})
 	}
 }
 
@@ -261,7 +502,9 @@ func TestPurgeCascadesAllHistory(t *testing.T) {
 	if err := (&storage.Instances{DB: db}).Delete(t.Context(), "one", "purge"); err != nil {
 		t.Fatal(err)
 	}
-	for _, table := range []string{"instance_epochs", "collector_cursor", "collector_state", "traffic_minute", "traffic_hour", "connection_records", "traffic_gap_intervals"} {
+	for _, table := range []string{
+		"collector_cursor", "traffic_minute", "traffic_hour", "connection_records", "traffic_gap_intervals",
+	} {
 		if n := scalar(t, db, "SELECT COUNT(*) FROM "+table+" WHERE instance_id='one'"); n != 0 {
 			t.Fatal(table, n)
 		}

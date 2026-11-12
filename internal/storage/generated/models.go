@@ -26,19 +26,10 @@ type AuditEvent struct {
 type CollectorCursor struct {
 	InstanceID    string
 	EpochID       string
-	SampleID      string
 	SourceID      string
 	UploadTotal   int64
 	DownloadTotal int64
 	AtMs          int64
-}
-
-type CollectorState struct {
-	InstanceID string
-	Generation int64
-	Status     string
-	ErrorCode  string
-	AtMs       int64
 }
 
 type ConnectionRecord struct {
@@ -65,19 +56,10 @@ type Instance struct {
 	Name             string
 	ControllerUrl    string
 	SecretCiphertext []byte
-	Enabled          int64
-	CollectEnabled   int64
 	CreatedAtMs      int64
 	UpdatedAtMs      int64
 	DeletedAtMs      sql.NullInt64
 	Generation       int64
-}
-
-type InstanceEpoch struct {
-	InstanceID  string
-	EpochID     string
-	StartedAtMs int64
-	Reason      string
 }
 
 type ReadinessProbe struct {

@@ -43,7 +43,7 @@ func (r *Instances) List(ctx context.Context) ([]instance.Instance, error) {
 		}
 		items = append(items, instance.Instance{
 			ID: row.ID, Name: row.Name, ControllerURL: row.ControllerUrl, Secret: secret,
-			Enabled: row.Enabled != 0, CollectEnabled: row.CollectEnabled != 0,
+			Enabled: true, CollectEnabled: true,
 			CreatedAtMS: row.CreatedAtMs, UpdatedAtMS: row.UpdatedAtMs,
 			Generation: row.Generation,
 		})
@@ -64,7 +64,6 @@ func (r *Instances) Save(ctx context.Context, item instance.Instance, action str
 	q := generated.New(tx)
 	err = q.SaveInstance(ctx, generated.SaveInstanceParams{
 		ID: item.ID, Name: item.Name, ControllerUrl: item.ControllerURL, SecretCiphertext: encrypted,
-		Enabled: boolInt(item.Enabled), CollectEnabled: boolInt(item.CollectEnabled),
 		CreatedAtMs: item.CreatedAtMS, UpdatedAtMs: item.UpdatedAtMS,
 		Generation: item.Generation,
 	})
@@ -74,11 +73,6 @@ func (r *Instances) Save(ctx context.Context, item instance.Instance, action str
 			return instance.ErrConflict
 		}
 		return fmt.Errorf("save instance: %w", err)
-	}
-	if !item.Enabled || !item.CollectEnabled {
-		if err := q.CloseObservedConnections(ctx, item.ID); err != nil {
-			return err
-		}
 	}
 	if err := auditTx(ctx, q, action, item.ID); err != nil {
 		return err

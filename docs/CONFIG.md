@@ -57,6 +57,8 @@ Collector 使用与 Gateway 相同的地址策略、TLS 和 `max_ws_message_byte
 
 接入实例即启用后台采集；Schema 4 已将未删除的存量实例统一启用管理与采集。
 
+Schema 6 移除无业务读取的 `collector_state`、`instance_epochs`，以及 `sample_id`、`enabled`、`collect_enabled` 冗余列。未删除实例统一参与管理与采集，旧 API 的启用字段继续兼容；采集状态由内存提供，恢复基线仍由持久化游标保存，周期边界和原因保存在连接、缺口数据中。分钟和小时统计按同一份增量在同一事务内提交，不再每批扫描分钟历史重建小时数据。
+
 ## 发布与容器
 
 `version` 输出版本、后端 Commit、前端 Commit、schema、构建时间与内嵌标志，不需要读取主密钥或初始化数据库。`healthcheck` 在 2 秒内访问配置监听地址的本地 `/readyz`；容器用它探活，无需 curl、shell 或 Node。

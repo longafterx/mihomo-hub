@@ -54,18 +54,16 @@ func (q *Queries) AnalyticsHour(ctx context.Context, arg AnalyticsHourParams) ([
 }
 
 const analyticsInstances = `-- name: AnalyticsInstances :many
-SELECT id,name,enabled,collect_enabled,deleted_at_ms,created_at_ms,updated_at_ms FROM instances
+SELECT id,name,deleted_at_ms,created_at_ms,updated_at_ms FROM instances
 WHERE (?1='[]' OR id IN (SELECT value FROM json_each(?1))) ORDER BY id
 `
 
 type AnalyticsInstancesRow struct {
-	ID             string
-	Name           string
-	Enabled        int64
-	CollectEnabled int64
-	DeletedAtMs    sql.NullInt64
-	CreatedAtMs    int64
-	UpdatedAtMs    int64
+	ID          string
+	Name        string
+	DeletedAtMs sql.NullInt64
+	CreatedAtMs int64
+	UpdatedAtMs int64
 }
 
 func (q *Queries) AnalyticsInstances(ctx context.Context, ids interface{}) ([]AnalyticsInstancesRow, error) {
@@ -80,8 +78,6 @@ func (q *Queries) AnalyticsInstances(ctx context.Context, ids interface{}) ([]An
 		if err := rows.Scan(
 			&i.ID,
 			&i.Name,
-			&i.Enabled,
-			&i.CollectEnabled,
 			&i.DeletedAtMs,
 			&i.CreatedAtMs,
 			&i.UpdatedAtMs,

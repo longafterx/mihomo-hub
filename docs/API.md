@@ -39,6 +39,8 @@ Cookie 名为 `mihomohub_session`，Path=/，SameSite=Strict，HTTPS Origin 下 
 
 创建字段：`name`（非空，至多 128 字节，未删除实例间唯一）、`controller_url`（HTTP(S) 根 URL）、`secret`（默认空，至多 4096 字节，不含 CR/LF）。接入即启用管理和后台采集；`enabled` 与 `collect_enabled` 可省略，兼容旧客户端显式 `true`，显式 `false` 返回 400 `invalid_instance`。不接受用户提供 ID、URL userinfo、基路径、query、fragment 或任意未知字段。
 
+`enabled`、`collect_enabled` 在未删除实例的响应中恒为 `true`，仅保留 API 兼容，不再作为独立开关持久化；实例是否仍受管理由删除标记决定。
+
 PATCH 允许上述字段，同样禁止关闭管理或采集；省略 Secret 保留原值，`"secret":""` 清空。重命名离线实例无需 DNS 可用；更换 URL/Secret 时重新校验网络策略。任何成功修改会取消旧 generation 的 HTTP/WS 请求；持久化失败恢复此前配置的新 generation。实例和对应审计在同一事务提交后才发布到注册中心。
 
 返回示意：

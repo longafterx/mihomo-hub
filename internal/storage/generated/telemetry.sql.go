@@ -20,22 +20,8 @@ func (q *Queries) CloseObservedConnections(ctx context.Context, instanceID strin
 	return err
 }
 
-const deleteDimensionHour = `-- name: DeleteDimensionHour :exec
-DELETE FROM traffic_dimension_hour WHERE instance_id=? AND bucket_ms=?
-`
-
-type DeleteDimensionHourParams struct {
-	InstanceID string
-	BucketMs   int64
-}
-
-func (q *Queries) DeleteDimensionHour(ctx context.Context, arg DeleteDimensionHourParams) error {
-	_, err := q.db.ExecContext(ctx, deleteDimensionHour, arg.InstanceID, arg.BucketMs)
-	return err
-}
-
 const getCursor = `-- name: GetCursor :one
-SELECT instance_id, epoch_id, sample_id, source_id, upload_total, download_total, at_ms FROM collector_cursor WHERE instance_id=?
+SELECT instance_id, epoch_id, source_id, upload_total, download_total, at_ms FROM collector_cursor WHERE instance_id=?
 `
 
 func (q *Queries) GetCursor(ctx context.Context, instanceID string) (CollectorCursor, error) {
@@ -44,7 +30,6 @@ func (q *Queries) GetCursor(ctx context.Context, instanceID string) (CollectorCu
 	err := row.Scan(
 		&i.InstanceID,
 		&i.EpochID,
-		&i.SampleID,
 		&i.SourceID,
 		&i.UploadTotal,
 		&i.DownloadTotal,
@@ -54,7 +39,7 @@ func (q *Queries) GetCursor(ctx context.Context, instanceID string) (CollectorCu
 }
 
 const getGeneration = `-- name: GetGeneration :one
-SELECT generation FROM instances WHERE id=? AND deleted_at_ms IS NULL AND enabled=1 AND collect_enabled=1
+SELECT generation FROM instances WHERE id=? AND deleted_at_ms IS NULL
 `
 
 func (q *Queries) GetGeneration(ctx context.Context, id string) (int64, error) {
@@ -62,27 +47,6 @@ func (q *Queries) GetGeneration(ctx context.Context, id string) (int64, error) {
 	var generation int64
 	err := row.Scan(&generation)
 	return generation, err
-}
-
-const insertEpoch = `-- name: InsertEpoch :exec
-INSERT INTO instance_epochs(instance_id,epoch_id,started_at_ms,reason) VALUES(?,?,?,?) ON CONFLICT DO NOTHING
-`
-
-type InsertEpochParams struct {
-	InstanceID  string
-	EpochID     string
-	StartedAtMs int64
-	Reason      string
-}
-
-func (q *Queries) InsertEpoch(ctx context.Context, arg InsertEpochParams) error {
-	_, err := q.db.ExecContext(ctx, insertEpoch,
-		arg.InstanceID,
-		arg.EpochID,
-		arg.StartedAtMs,
-		arg.Reason,
-	)
-	return err
 }
 
 const insertGap = `-- name: InsertGap :exec
@@ -117,89 +81,16 @@ func (q *Queries) InsertGap(ctx context.Context, arg InsertGapParams) error {
 	return err
 }
 
-const recomputeDimensionHour = `-- name: RecomputeDimensionHour :exec
-INSERT INTO traffic_dimension_hour(instance_id,bucket_ms,dimension,value,upload_bytes,download_bytes)
-SELECT m.instance_id,?1,m.dimension,m.value,SUM(m.upload_bytes),SUM(m.download_bytes)
-FROM traffic_dimension_minute m WHERE m.instance_id=?2 AND m.bucket_ms>=?3 AND m.bucket_ms<?4
-GROUP BY m.instance_id,m.dimension,m.value
-`
-
-type RecomputeDimensionHourParams struct {
-	BucketMs   int64
-	InstanceID string
-	FromMs     int64
-	ToMs       int64
-}
-
-func (q *Queries) RecomputeDimensionHour(ctx context.Context, arg RecomputeDimensionHourParams) error {
-	_, err := q.db.ExecContext(ctx, recomputeDimensionHour,
-		arg.BucketMs,
-		arg.InstanceID,
-		arg.FromMs,
-		arg.ToMs,
-	)
-	return err
-}
-
-const recomputeHour = `-- name: RecomputeHour :exec
-INSERT OR REPLACE INTO traffic_hour(instance_id,bucket_ms,total_upload,total_download,attributed_upload,attributed_download,observed_ms,gap)
-SELECT m.instance_id,?1,SUM(m.total_upload),SUM(m.total_download),SUM(m.attributed_upload),SUM(m.attributed_download),SUM(m.observed_ms),MAX(m.gap)
-FROM traffic_minute m WHERE m.instance_id=?2 AND m.bucket_ms>=?3 AND m.bucket_ms<?4 GROUP BY m.instance_id
-`
-
-type RecomputeHourParams struct {
-	BucketMs   int64
-	InstanceID string
-	FromMs     int64
-	ToMs       int64
-}
-
-func (q *Queries) RecomputeHour(ctx context.Context, arg RecomputeHourParams) error {
-	_, err := q.db.ExecContext(ctx, recomputeHour,
-		arg.BucketMs,
-		arg.InstanceID,
-		arg.FromMs,
-		arg.ToMs,
-	)
-	return err
-}
-
-const saveCollectorState = `-- name: SaveCollectorState :exec
-INSERT INTO collector_state(instance_id,generation,status,error_code,at_ms) VALUES(?,?,?,?,?)
-ON CONFLICT(instance_id) DO UPDATE SET generation=excluded.generation,status=excluded.status,
-error_code=excluded.error_code,at_ms=excluded.at_ms
-`
-
-type SaveCollectorStateParams struct {
-	InstanceID string
-	Generation int64
-	Status     string
-	ErrorCode  string
-	AtMs       int64
-}
-
-func (q *Queries) SaveCollectorState(ctx context.Context, arg SaveCollectorStateParams) error {
-	_, err := q.db.ExecContext(ctx, saveCollectorState,
-		arg.InstanceID,
-		arg.Generation,
-		arg.Status,
-		arg.ErrorCode,
-		arg.AtMs,
-	)
-	return err
-}
-
 const saveCursor = `-- name: SaveCursor :exec
-INSERT INTO collector_cursor(instance_id,epoch_id,sample_id,source_id,upload_total,download_total,at_ms)
-VALUES(?,?,?,?,?,?,?) ON CONFLICT(instance_id) DO UPDATE SET epoch_id=excluded.epoch_id,
-sample_id=excluded.sample_id,source_id=excluded.source_id,upload_total=excluded.upload_total,
+INSERT INTO collector_cursor(instance_id,epoch_id,source_id,upload_total,download_total,at_ms)
+VALUES(?,?,?,?,?,?) ON CONFLICT(instance_id) DO UPDATE SET epoch_id=excluded.epoch_id,
+source_id=excluded.source_id,upload_total=excluded.upload_total,
 download_total=excluded.download_total,at_ms=excluded.at_ms
 `
 
 type SaveCursorParams struct {
 	InstanceID    string
 	EpochID       string
-	SampleID      string
 	SourceID      string
 	UploadTotal   int64
 	DownloadTotal int64
@@ -210,7 +101,6 @@ func (q *Queries) SaveCursor(ctx context.Context, arg SaveCursorParams) error {
 	_, err := q.db.ExecContext(ctx, saveCursor,
 		arg.InstanceID,
 		arg.EpochID,
-		arg.SampleID,
 		arg.SourceID,
 		arg.UploadTotal,
 		arg.DownloadTotal,
@@ -268,6 +158,34 @@ func (q *Queries) UpsertConnection(ctx context.Context, arg UpsertConnectionPara
 	return err
 }
 
+const upsertDimensionHour = `-- name: UpsertDimensionHour :exec
+INSERT INTO traffic_dimension_hour(instance_id,bucket_ms,dimension,value,upload_bytes,download_bytes)
+VALUES(?,?,?,?,?,?) ON CONFLICT(instance_id,bucket_ms,dimension,value) DO UPDATE SET
+upload_bytes=traffic_dimension_hour.upload_bytes+excluded.upload_bytes,
+download_bytes=traffic_dimension_hour.download_bytes+excluded.download_bytes
+`
+
+type UpsertDimensionHourParams struct {
+	InstanceID    string
+	BucketMs      int64
+	Dimension     string
+	Value         string
+	UploadBytes   int64
+	DownloadBytes int64
+}
+
+func (q *Queries) UpsertDimensionHour(ctx context.Context, arg UpsertDimensionHourParams) error {
+	_, err := q.db.ExecContext(ctx, upsertDimensionHour,
+		arg.InstanceID,
+		arg.BucketMs,
+		arg.Dimension,
+		arg.Value,
+		arg.UploadBytes,
+		arg.DownloadBytes,
+	)
+	return err
+}
+
 const upsertDimensionMinute = `-- name: UpsertDimensionMinute :exec
 INSERT INTO traffic_dimension_minute(instance_id,bucket_ms,dimension,value,upload_bytes,download_bytes)
 VALUES(?,?,?,?,?,?) ON CONFLICT(instance_id,bucket_ms,dimension,value) DO UPDATE SET
@@ -292,6 +210,41 @@ func (q *Queries) UpsertDimensionMinute(ctx context.Context, arg UpsertDimension
 		arg.Value,
 		arg.UploadBytes,
 		arg.DownloadBytes,
+	)
+	return err
+}
+
+const upsertHour = `-- name: UpsertHour :exec
+INSERT INTO traffic_hour(instance_id,bucket_ms,total_upload,total_download,attributed_upload,attributed_download,observed_ms,gap)
+VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(instance_id,bucket_ms) DO UPDATE SET
+ total_upload=traffic_hour.total_upload+excluded.total_upload,
+ total_download=traffic_hour.total_download+excluded.total_download,
+ attributed_upload=traffic_hour.attributed_upload+excluded.attributed_upload,
+ attributed_download=traffic_hour.attributed_download+excluded.attributed_download,
+ observed_ms=traffic_hour.observed_ms+excluded.observed_ms,gap=MAX(traffic_hour.gap,excluded.gap)
+`
+
+type UpsertHourParams struct {
+	InstanceID         string
+	BucketMs           int64
+	TotalUpload        int64
+	TotalDownload      int64
+	AttributedUpload   int64
+	AttributedDownload int64
+	ObservedMs         int64
+	Gap                int64
+}
+
+func (q *Queries) UpsertHour(ctx context.Context, arg UpsertHourParams) error {
+	_, err := q.db.ExecContext(ctx, upsertHour,
+		arg.InstanceID,
+		arg.BucketMs,
+		arg.TotalUpload,
+		arg.TotalDownload,
+		arg.AttributedUpload,
+		arg.AttributedDownload,
+		arg.ObservedMs,
+		arg.Gap,
 	)
 	return err
 }

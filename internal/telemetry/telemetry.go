@@ -72,7 +72,6 @@ func Decode(data []byte, maxConnections int) (Snapshot, error) {
 type Cursor struct {
 	InstanceID string
 	EpochID    string
-	SampleID   string
 	SourceID   string
 	Upload     int64
 	Download   int64
@@ -102,17 +101,14 @@ type Gap struct {
 	CandidateUpload, CandidateDownload *int64
 }
 type Batch struct {
-	InstanceID        string
-	Generation        int64
-	Cursor            *Cursor
-	EpochReason       string
-	ClosePrevious     bool
-	Minutes           []Minute
-	Dimensions        []Dimension
-	Records           []Record
-	Gaps              []Gap
-	Status, ErrorCode string
-	At                int64
+	InstanceID    string
+	Generation    int64
+	Cursor        *Cursor
+	ClosePrevious bool
+	Minutes       []Minute
+	Dimensions    []Dimension
+	Records       []Record
+	Gaps          []Gap
 }
 
 type tracked struct {
@@ -150,21 +146,23 @@ func (e *Engine) Plan(s Snapshot, at int64, source, boundary string) (Batch, *En
 	if at <= e.Cursor.At {
 		return Batch{}, nil, errors.New("out of order snapshot")
 	}
-	b := Batch{InstanceID: e.Cursor.InstanceID, Status: "online", At: at,
+	b := Batch{InstanceID: e.Cursor.InstanceID,
 		Minutes: []Minute{}, Dimensions: []Dimension{}, Records: []Record{}, Gaps: []Gap{}}
-	c := Cursor{InstanceID: e.Cursor.InstanceID, EpochID: e.Cursor.EpochID, SampleID: uuid.NewString(), SourceID: source,
+	c := Cursor{InstanceID: e.Cursor.InstanceID, EpochID: e.Cursor.EpochID, SourceID: source,
 		Upload: *s.Upload, Download: *s.Download, At: at}
 	first := e.Cursor.At == 0
 	changed := !first && e.Cursor.SourceID != source
 	reset := !first && (c.Upload < e.Cursor.Upload || c.Download < e.Cursor.Download)
+	// 周期原因直接记录到缺口中，不再额外维护独立周期表。
+	epochReason := ""
 	if first || changed || reset {
 		c.EpochID = uuid.NewString()
-		b.EpochReason = "first_seen"
+		epochReason = "first_seen"
 		if changed {
-			b.EpochReason = "controller_changed"
+			epochReason = "controller_changed"
 		}
 		if reset {
-			b.EpochReason = "counter_reset"
+			epochReason = "counter_reset"
 		}
 	}
 	interval := at - e.Cursor.At
@@ -178,8 +176,8 @@ func (e *Engine) Plan(s Snapshot, at int64, source, boundary string) (Batch, *En
 	if baseline {
 		minute.Gap = true
 		reason := boundary
-		if b.EpochReason != "" {
-			reason = b.EpochReason
+		if epochReason != "" {
+			reason = epochReason
 		}
 		gap := Gap{ID: uuid.NewString(), EpochID: c.EpochID, From: at, To: at, Reason: reason, Resolution: "unknown"}
 		if !first {

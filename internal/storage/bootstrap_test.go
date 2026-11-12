@@ -28,8 +28,8 @@ func TestPrepareKeyProtectsExistingData(t *testing.T) {
 				})
 			case "instances":
 				_, err = db.Exec(`INSERT INTO instances
-					(id,name,controller_url,secret_ciphertext,enabled,collect_enabled,created_at_ms,updated_at_ms,generation)
-					VALUES ('retained','retained','',x'010203',0,0,1,1,1)`)
+					(id,name,controller_url,secret_ciphertext,created_at_ms,updated_at_ms,generation)
+					VALUES ('retained','retained','',x'010203',1,1,1)`)
 			}
 			if err != nil {
 				t.Fatal(err)

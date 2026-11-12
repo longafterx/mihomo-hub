@@ -148,10 +148,12 @@ func TestCollectorsIndependentRecoveryAndReset(t *testing.T) {
 	a.set(1, 0)
 	eventually(t, "counter reset epoch", func() bool {
 		var n int
-		if err := h.app.DB.QueryRow("SELECT COUNT(*) FROM instance_epochs WHERE instance_id=?", ids[0]).Scan(&n); err != nil {
+		if err := h.app.DB.QueryRow(
+			"SELECT COUNT(*) FROM traffic_gap_intervals WHERE instance_id=? AND reason='counter_reset'", ids[0],
+		).Scan(&n); err != nil {
 			t.Fatal(err)
 		}
-		return n == 2
+		return n == 1
 	})
 	if got := counter(t, h, ids[0]); got != 30 {
 		t.Fatal("reset spike", got)

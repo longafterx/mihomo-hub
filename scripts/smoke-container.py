@@ -68,7 +68,7 @@ try:
     version=json.loads(docker('exec',name,'/mihomo-hub','version'))
     assert version['frontend_embedded'] is True
     assert len(version['frontend_commit'])==40
-    assert version['schema_version']==5
+    assert version['schema_version']==6
     assert json.loads(request('/api/v1/auth/setup')[1])['data']['setup_required']
     assert '<form id="login"' in request('/')[1].decode(), 'first visit did not reach password setup'
     token=json.loads(request('/api/v1/auth/setup',{'password':password,'confirm_password':password})[1])['data']['csrf_token']

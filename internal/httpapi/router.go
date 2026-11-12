@@ -371,22 +371,15 @@ func (a *api) editConfig(c *gin.Context) {
 }
 
 func (a *api) withStatus(item *instance.Instance) {
-	item.CollectorStatus = "disabled"
-	if item.Enabled && item.CollectEnabled {
-		s := a.Collector.Status(item.ID, item.Generation)
-		item.CollectorStatus = s.Status
-		item.LastSeenAtMS = s.LastSeenAtMS
-	}
+	s := a.Collector.Status(item.ID, item.Generation)
+	item.CollectorStatus = s.Status
+	item.LastSeenAtMS = s.LastSeenAtMS
 }
 
 func (a *api) status(c *gin.Context) {
 	item, err := a.Instances.Get(c.Param("id"))
 	if err != nil {
 		serviceError(c, err)
-		return
-	}
-	if !item.Enabled || !item.CollectEnabled {
-		respond(c, 200, collector.Status{Status: "disabled"})
 		return
 	}
 	respond(c, 200, a.Collector.Status(item.ID, item.Generation))

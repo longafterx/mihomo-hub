@@ -7,10 +7,8 @@ import (
 	"path/filepath"
 	"testing"
 	"testing/fstest"
-	"time"
 
 	"github.com/longafterx/mihomo-hub/internal/storage"
-	"github.com/longafterx/mihomo-hub/internal/telemetry"
 	"github.com/longafterx/mihomo-hub/migrations"
 	"github.com/pressly/goose/v3"
 )
@@ -44,13 +42,7 @@ func TestManagedInstancesMigration(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		engine := telemetry.New(telemetry.Cursor{InstanceID: id}, 5*time.Second)
-		baseline, engine := plan(t, engine, 60000, 100)
-		baseline.Generation = 7
-		mustApply(t, storage.Telemetry{DB: db}, baseline)
-		delta, _ := plan(t, engine, 61000, 120)
-		delta.Generation = 7
-		mustApply(t, storage.Telemetry{DB: db}, delta)
+		seedLegacyTelemetry(t, db, id)
 	}
 	if _, err := db.Exec(`UPDATE instances SET enabled=0,collect_enabled=0 WHERE id='paused'`); err != nil {
 		t.Fatal(err)
@@ -67,27 +59,28 @@ func TestManagedInstancesMigration(t *testing.T) {
 	}
 	defer db.Close()
 	for _, tt := range []struct {
-		name                         string
-		enabled, collect, generation int64
-		ciphertext                   string
+		name       string
+		active     bool
+		generation int64
+		ciphertext string
 	}{
-		{name: "paused", enabled: 1, collect: 1, generation: 8, ciphertext: "010203"},
-		{name: "active", enabled: 1, collect: 1, generation: 7, ciphertext: "010203"},
+		{name: "paused", active: true, generation: 8, ciphertext: "010203"},
+		{name: "active", active: true, generation: 7, ciphertext: "010203"},
 		{name: "archived", generation: 7, ciphertext: ""},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			var enabled, collect, generation int64
+			var active bool
+			var generation int64
 			var ciphertext string
 			err := db.QueryRow(
-				`SELECT enabled,collect_enabled,generation,hex(secret_ciphertext) FROM instances WHERE id=?`, tt.name,
-			).Scan(&enabled, &collect, &generation, &ciphertext)
+				`SELECT deleted_at_ms IS NULL,generation,hex(secret_ciphertext) FROM instances WHERE id=?`, tt.name,
+			).Scan(&active, &generation, &ciphertext)
 			if err != nil {
 				t.Fatal(err)
 			}
-			flagsMatch := enabled == tt.enabled && collect == tt.collect
 			identityMatch := generation == tt.generation && ciphertext == tt.ciphertext
-			if !flagsMatch || !identityMatch {
-				t.Fatalf("migration changed unexpected fields: enabled=%d collect=%d generation=%d", enabled, collect, generation)
+			if active != tt.active || !identityMatch {
+				t.Fatalf("migration changed unexpected fields: active=%t generation=%d", active, generation)
 			}
 			var total int64
 			if err := db.QueryRow("SELECT SUM(total_upload) FROM traffic_minute WHERE instance_id=?", tt.name).Scan(&total); err != nil || total != 20 {

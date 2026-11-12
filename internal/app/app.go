@@ -136,11 +136,7 @@ func Open(ctx context.Context, c config.Config, logger *slog.Logger) (*App, erro
 			}
 			states := map[string]collector.Status{}
 			for _, item := range registry.List() {
-				if item.Enabled && item.CollectEnabled {
-					states[item.ID] = manager.Status(item.ID, item.Generation)
-				} else {
-					states[item.ID] = collector.Status{Status: "disabled"}
-				}
+				states[item.ID] = manager.Status(item.ID, item.Generation)
 			}
 			return map[string]any{
 				"version":               Version,

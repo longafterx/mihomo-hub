@@ -7,10 +7,8 @@ import (
 	"path/filepath"
 	"testing"
 	"testing/fstest"
-	"time"
 
 	"github.com/longafterx/mihomo-hub/internal/storage"
-	"github.com/longafterx/mihomo-hub/internal/telemetry"
 	"github.com/longafterx/mihomo-hub/migrations"
 	"github.com/pressly/goose/v3"
 )
@@ -43,18 +41,15 @@ func TestActiveNameMigrationPreservesHistory(t *testing.T) {
 		if _, err := db.Exec(`INSERT INTO instances VALUES(?,?,?,x'010203',1,1,1,2,NULL,7)`, id, id, "http://127.0.0.1:9090"); err != nil {
 			t.Fatal(err)
 		}
-		e := telemetry.New(telemetry.Cursor{InstanceID: id}, 5*time.Second)
-		baseline, e := plan(t, e, 60000, 100)
-		baseline.Generation = 7
-		mustApply(t, storage.Telemetry{DB: db}, baseline)
-		batch, _ := plan(t, e, 61000, 120)
-		batch.Generation = 7
-		mustApply(t, storage.Telemetry{DB: db}, batch)
+		seedLegacyTelemetry(t, db, id)
 	}
 	if _, err := db.Exec(`UPDATE instances SET deleted_at_ms=62000,enabled=0,collect_enabled=0,controller_url='',secret_ciphertext=x'' WHERE id='archived'`); err != nil {
 		t.Fatal(err)
 	}
-	tables := []string{"instance_epochs", "collector_cursor", "collector_state", "traffic_minute", "traffic_hour", "connection_records", "traffic_dimension_minute", "traffic_dimension_hour", "traffic_gap_intervals"}
+	tables := []string{
+		"collector_cursor", "traffic_minute", "traffic_hour", "connection_records",
+		"traffic_dimension_minute", "traffic_dimension_hour", "traffic_gap_intervals",
+	}
 	counts := map[string]int64{}
 	for _, table := range tables {
 		counts[table] = scalar(t, db, "SELECT COUNT(*) FROM "+table)
@@ -99,7 +94,8 @@ func TestActiveNameMigrationPreservesHistory(t *testing.T) {
 	if err := db.QueryRow("SELECT hex(secret_ciphertext) FROM instances WHERE id='active'").Scan(&ciphertext); err != nil || ciphertext != "010203" {
 		t.Fatal("ciphertext changed", err)
 	}
-	insert := `INSERT INTO instances(id,name,controller_url,secret_ciphertext,enabled,collect_enabled,created_at_ms,updated_at_ms) VALUES(?,?,'http://127.0.0.1:9090',x'',1,1,1,2)`
+	insert := `INSERT INTO instances(id,name,controller_url,secret_ciphertext,created_at_ms,updated_at_ms)
+		VALUES(?,?,'http://127.0.0.1:9090',x'',1,2)`
 	if _, err := db.Exec(insert, "replacement", "archived"); err != nil {
 		t.Fatal("retained name unavailable", err)
 	}

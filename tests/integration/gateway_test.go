@@ -100,8 +100,8 @@ func setupConfig(t *testing.T, customize func(*config.Config)) *harness {
 	if err := (storage.Admins{DB: db}).Initialize(t.Context(), auth.Admin{Username: "legacy-admin-name", PasswordHash: passwordHash}); err != nil {
 		t.Fatal(err)
 	}
-	// Gateway 协议夹具直接播种未采集记录，避免后台连接干扰流数量与透传断言。
-	// 产品注册只能走 Create；后台采集测试另行通过 HTTP 注册并验证自动启动。
+	// Gateway 夹具拒绝后台采集连接，避免干扰流数量与透传断言；不再依赖已删除的采集开关。
+	// 后台采集测试另行通过 HTTP 注册专用 Controller，并验证自动启动。
 	aead, err := storage.LoadKey(c.Security.MasterKeyFile)
 	if err != nil {
 		t.Fatal(err)
@@ -110,7 +110,7 @@ func setupConfig(t *testing.T, customize func(*config.Config)) *harness {
 	fakes := []*fakemihomo.Fake{}
 	ids := []string{}
 	for i := range 2 {
-		fake := fakemihomo.New(fmt.Sprintf("mock-%d", i), fmt.Sprintf("server-secret-%d-+$&", i))
+		fake := fakemihomo.NewGateway(fmt.Sprintf("mock-%d", i), fmt.Sprintf("server-secret-%d-+$&", i))
 		t.Cleanup(fake.Close)
 		item := instance.Instance{ID: uuid.NewString(), Name: fake.Label, ControllerURL: fake.Server.URL,
 			Secret: fake.Secret, Enabled: true, Generation: 1}
@@ -837,10 +837,18 @@ func TestInstancesAlwaysManaged(t *testing.T) {
 	h := setup(t)
 	id := h.register(h.fakes[0].Server.URL, h.fakes[0].Secret, "managed")
 	snapshot := func() instance.Instance {
-		var item instance.Instance
+		resp, body := h.request("GET", "/api/v1/instances/"+id, "", true)
+		requireStatus(t, resp, 200)
+		var payload struct {
+			Data instance.Instance `json:"data"`
+		}
+		if err := json.Unmarshal(body, &payload); err != nil {
+			t.Fatal(err)
+		}
+		item := payload.Data
 		err := h.app.DB.QueryRow(
-			"SELECT name,enabled,collect_enabled,generation FROM instances WHERE id=?", id,
-		).Scan(&item.Name, &item.Enabled, &item.CollectEnabled, &item.Generation)
+			"SELECT name,generation FROM instances WHERE id=?", id,
+		).Scan(&item.Name, &item.Generation)
 		if err != nil {
 			t.Fatal(err)
 		}

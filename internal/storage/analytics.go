@@ -219,7 +219,7 @@ func (s Analytics) query(ctx context.Context, q *generated.Queries, p analytics.
 		c.HasGap = gapCount > 0 || c.ObservedMS < c.WindowMS
 		meta.HasGap = meta.HasGap || c.HasGap
 		meta.Coverage = append(meta.Coverage, c)
-		if item.Enabled != 0 && item.CollectEnabled != 0 && !item.DeletedAtMs.Valid {
+		if !item.DeletedAtMs.Valid {
 			start := item.CreatedAtMs
 			if retained.LastSnapshot >= 0 {
 				start = retained.LastSnapshot
