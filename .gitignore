@@ -2,6 +2,7 @@
 /dist/
 /coverage.out
 /config.local.yaml
+/.env
 /node_modules/
 /test-results/
 *.db

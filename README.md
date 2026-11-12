@@ -10,13 +10,25 @@
 mkdir -p ~/app/mihomo-hub
 cd ~/app/mihomo-hub
 curl -fL https://raw.githubusercontent.com/longafterx/mihomo-hub/main/compose.yaml -o compose.yaml
+```
+
+在 `.env` 中指定宿主机数据目录（不设置时默认 `./data`）：
+
+```dotenv
+MIHOMOHUB_DATA_DIR=/srv/mihomo-hub/data
+```
+
+创建所选目录并启动，目录所有者需与容器用户 `65532:65532` 一致：
+
+```bash
+sudo install -d -m 0700 -o 65532 -g 65532 /srv/mihomo-hub/data
 docker compose pull
 docker compose up -d
 ```
 
 打开 http://127.0.0.1:11235 ，首次访问设置登录密码，然后添加 Mihomo 实例。无需执行 `init`。
 
-服务器通过 IP 远程访问时，将 `compose.yaml` 的端口映射改为 `"11235:11235"`，并在同目录创建 `.env`，填写浏览器实际访问的地址：
+服务器通过 IP 远程访问时，将 `compose.yaml` 的端口映射改为 `"11235:11235"`，并在 `.env` 中补充浏览器实际访问的地址：
 
 ```dotenv
 MIHOMOHUB_PUBLIC_ORIGIN=http://你的服务器IP:11235
@@ -24,7 +36,7 @@ MIHOMOHUB_PUBLIC_ORIGIN=http://你的服务器IP:11235
 
 修改后执行 `docker compose up -d`。通过域名或反向代理访问时，同样将 `MIHOMOHUB_PUBLIC_ORIGIN` 设置为实际入口。
 
-数据保存在 `hub-data` 数据卷中，重建容器会保留。不要使用 `docker compose down -v`，它会删除数据。
+数据库和主密钥保存在所选目录，重建容器会保留。已有 `hub-data` 数据卷需先[迁移数据](docs/RUNBOOK.md#数据卷迁移到自定义目录)，再切换挂载。
 
 更新镜像：
 

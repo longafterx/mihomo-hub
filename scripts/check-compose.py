@@ -1,19 +1,42 @@
-"""只读校验 Compose 的端口/Origin 默认值；不启动容器或连接 Docker daemon。"""
+"""只读校验 Compose 的端口、Origin 和用户数据目录；不启动容器或连接 Docker daemon。"""
 import json
 import os
+from pathlib import Path
 import subprocess
 
-for port, origin in [(None, None), ('18081', None), ('18081', 'https://hub.example')]:
+root = Path(__file__).resolve().parent.parent
+for port, origin, directory in [
+    (None, None, None),
+    ('18081', None, None),
+    ('18081', 'https://hub.example', None),
+    (None, None, '/srv/mihomo-hub/data'),
+    (None, None, './custom data'),
+]:
     environment = {key: value for key, value in os.environ.items() if not key.startswith('MIHOMOHUB_')}
     if port:
         environment['MIHOMOHUB_PORT'] = port
     if origin:
         environment['MIHOMOHUB_PUBLIC_ORIGIN'] = origin
-    config = json.loads(subprocess.check_output(['docker', 'compose', 'config', '--format', 'json'], env=environment))
+    if directory:
+        environment['MIHOMOHUB_DATA_DIR'] = directory
+    # 忽略部署者本地 .env，校验仓库中的默认值及显式覆盖。
+    config = json.loads(subprocess.check_output(
+        ['docker', 'compose', '--env-file', '/dev/null', '-f', str(root / 'compose.yaml'), 'config', '--format', 'json'],
+        env=environment,
+    ))
     service = config['services']['mihomo-hub']
     assert service['image'] == 'ghcr.io/longafterx/mihomo-hub:latest'
     assert service['environment']['MIHOMOHUB_LISTEN'] == '0.0.0.0:11235'
     assert service['environment']['MIHOMOHUB_PUBLIC_ORIGIN'] == (origin or f'http://127.0.0.1:{port or "11235"}')
     assert str(service['ports'][0]['published']) == (port or '11235')
     assert service['ports'][0]['target'] == 11235
-print('PASS: latest image, host/container port 11235, custom port matches Origin, explicit HTTPS Origin preserved')
+    mount = service['volumes'][0]
+    expected = Path(directory or './data')
+    if not expected.is_absolute():
+        expected = root / expected
+    assert mount['type'] == 'bind'
+    assert mount['source'] == str(expected.resolve())
+    assert mount['target'] == '/var/lib/mihomo-hub'
+    assert not mount['bind'].get('create_host_path', False)
+    assert not config.get('volumes')
+print('PASS: latest image, port/Origin defaults and overrides, default/absolute/relative data directories, no automatic directory creation')

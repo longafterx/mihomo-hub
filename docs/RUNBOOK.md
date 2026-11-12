@@ -44,13 +44,36 @@ umask 077
 
 部署机器执行 `docker compose pull && docker compose up -d` 即可使用 GHCR 上的 `latest` 镜像，支持 Linux amd64/arm64，无需编译。默认访问 `http://127.0.0.1:11235`，首次打开网页设置登录密码。需要固定版本时设置 `MIHOMOHUB_IMAGE=ghcr.io/longafterx/mihomo-hub:<版本或摘要>`。
 
-需要从源码构建时，低内存机器可用 `sh scripts/build-image.sh dist/mihomo-hub_0.3.0_linux_amd64` 封装对应架构发布目录；内存充足的构建机可从锁定前端生成静态资源后执行 `sh scripts/build-image.sh`。本地镜像使用 `MIHOMOHUB_IMAGE=mihomo-hub:0.3.0 docker compose up -d` 启动。镜像默认非 root 65532:65532；named volume 首次挂载使用镜像目录权限。bind mount 需预先由管理员创建 0700 目录并设置 `chown 65532:65532`。
+Compose 使用宿主机目录挂载，默认 `./data`，相对路径以 `compose.yaml` 所在目录为基准。在 `.env` 设置 `MIHOMOHUB_DATA_DIR=/srv/mihomo-hub/data` 可指定其他目录。镜像默认非 root `65532:65532`，启动前用 `sudo install -d -m 0700 -o 65532 -g 65532 /srv/mihomo-hub/data` 准备所选目录；目录不存在时 Compose 会直接报错，不自动创建 root 所有的目录。数据库和 `secrets/master.key` 均位于该目录。
+
+需要从源码构建时，低内存机器可用 `sh scripts/build-image.sh dist/mihomo-hub_0.3.0_linux_amd64` 封装对应架构发布目录；内存充足的构建机可从锁定前端生成静态资源后执行 `sh scripts/build-image.sh`。本地镜像使用 `MIHOMOHUB_IMAGE=mihomo-hub:0.3.0 docker compose up -d` 启动。
 
 自动初始化只创建空库和主密钥；密码始终由首次网页提交设置，没有默认密码。设置完成前，仅开放登录引导、公开静态资源及探活，管理 API 和 Gateway 仍要求认证。多个浏览器同时设置时只有一个成功，其他浏览器切回登录。首次入口同样使用下文的 loopback、Tailnet ACL 或受限反代配置，确保由部署者完成密码设置。`/readyz` 在待设置密码阶段也返回就绪，可用 `GET /api/v1/auth/setup` 查看是否仍需设置。
 
 `docker compose exec mihomo-hub /mihomo-hub version` 核对版本；`docker compose exec mihomo-hub /mihomo-hub backup --output /var/lib/mihomo-hub/backups/新文件.db` 在线备份（先创建可写 backups 目录）。镜像没有 shell/curl，使用内置 `healthcheck`。将备份复制到受限宿主路径，主密钥独立保管。
 
-恢复时停 Hub 容器，将快照和对应密钥放入新的空 volume，再以服务 UID 验证 0600 权限后启动；恢复后沿用原密码。不要复制旧 WAL/SHM 文件覆盖快照，也不要更改 neko-master 或 Controller 进程。
+### 数据卷迁移到自定义目录
+
+已有部署不能直接改为空目录：新目录不会自动包含旧数据库和主密钥。先在线备份数据库并单独备份主密钥，再停止服务并完整复制数据。以下以 Linux root 用户、目标新空目录 `/srv/mihomo-hub/data` 为例，在旧部署目录中执行：
+
+```sh
+existing_container=$(docker compose ps -a -q mihomo-hub)
+test -n "$existing_container"
+docker compose stop mihomo-hub
+install -d -m 0700 /srv/mihomo-hub/data
+docker cp "$existing_container":/var/lib/mihomo-hub/. /srv/mihomo-hub/data/
+chown -R 65532:65532 /srv/mihomo-hub/data
+```
+
+复制时保留整个目录，包括数据库、可能存在的 WAL 文件及 `secrets/master.key`。随后更新 `compose.yaml`，在 `.env` 中追加 `MIHOMOHUB_DATA_DIR=/srv/mihomo-hub/data`，执行 `docker compose up -d --force-recreate`。用原密码登录并核对实例、历史和挂载：
+
+```sh
+docker inspect mihomo-hub --format '{{json .Mounts}}'
+```
+
+确认 `Type=bind`、`Source` 为所选宿主机目录、`Destination=/var/lib/mihomo-hub`。验证前保留旧数据卷及备份，不删除原卷。
+
+恢复时停 Hub 容器，将快照和对应密钥放入新的空数据目录，再以服务 UID 验证 0600 权限后启动；恢复后沿用原密码。不要复制旧 WAL/SHM 文件覆盖快照，也不要更改 neko-master 或 Controller 进程。
 
 ## HTTPS、反向代理与 Tailscale
 

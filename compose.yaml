@@ -10,7 +10,12 @@ services:
       MIHOMOHUB_LISTEN: 0.0.0.0:11235
       MIHOMOHUB_PUBLIC_ORIGIN: ${MIHOMOHUB_PUBLIC_ORIGIN:-http://127.0.0.1:${MIHOMOHUB_PORT:-11235}}
     volumes:
-      - hub-data:/var/lib/mihomo-hub
+      - type: bind
+        source: ${MIHOMOHUB_DATA_DIR:-./data}
+        target: /var/lib/mihomo-hub
+        bind:
+          # 目录由用户准备，避免 Docker 自动创建 root 所有的目录而导致权限错误。
+          create_host_path: false
     read_only: true
     tmpfs:
       - /tmp:rw,noexec,nosuid,size=16m,mode=1777
@@ -21,5 +26,3 @@ services:
     stop_grace_period: 30s
     mem_limit: 512m
     pids_limit: 128
-volumes:
-  hub-data:
