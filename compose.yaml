@@ -1,6 +1,7 @@
 services:
   mihomo-hub:
     image: ${MIHOMOHUB_IMAGE:-ghcr.io/longafterx/mihomo-hub:latest}
+    container_name: mihomo-hub
     restart: unless-stopped
     ports:
       - "127.0.0.1:${MIHOMOHUB_PORT:-11235}:11235"
