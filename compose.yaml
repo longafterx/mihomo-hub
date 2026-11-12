@@ -1,39 +1,8 @@
 services:
-  init-data:
-    image: alpine:3.22.4@sha256:310c62b5e7ca5b08167e4384c68db0fd2905dd9c7493756d356e893909057601
-    user: "0:0"
-    restart: "no"
-    network_mode: none
-    entrypoint: ["/bin/sh", "-ec"]
-    command:
-      - |
-        chown 65532:65532 /var/lib/mihomo-hub
-        chmod 0700 /var/lib/mihomo-hub
-    volumes:
-      - type: bind
-        source: ${MIHOMOHUB_DATA_DIR:-./data}
-        target: /var/lib/mihomo-hub
-        bind:
-          create_host_path: true
-    read_only: true
-    cap_drop:
-      - ALL
-    cap_add:
-      - CHOWN
-      - FOWNER
-    security_opt:
-      - no-new-privileges:true
-    mem_limit: 32m
-    pids_limit: 16
-
   mihomo-hub:
     image: ${MIHOMOHUB_IMAGE:-ghcr.io/longafterx/mihomo-hub:latest}
     container_name: mihomo-hub
     restart: unless-stopped
-    depends_on:
-      # 目录创建和权限准备成功后才启动非 root 主服务。
-      init-data:
-        condition: service_completed_successfully
     ports:
       - "${MIHOMOHUB_PORT:-11235}:11235"
     environment:
