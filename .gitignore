@@ -15,3 +15,5 @@ __pycache__/
 # 本地设计与技术栈文档（包含旧版设计文件名）
 /docs/MihomoHub-DESIGN*.md
 /docs/MihomoHub-TECH_STACK.md
+# 设计、开发决策和测试验收记录统一本地归档
+/docs/archive/

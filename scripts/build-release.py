@@ -102,7 +102,8 @@ for target in args.targets.split(','):
     (stage / 'sbom.cdx.json').write_text(json.dumps(bom, indent=2) + '\n')
     for file in ['README.md', 'config.example.yaml']:
         shutil.copy2(ROOT / file, stage / file)
-    shutil.copytree(ROOT / 'docs', stage / 'docs', ignore=shutil.ignore_patterns('MihomoHub-DESIGN*', 'MihomoHub-TECH_STACK.md'))
+    # 发布包只附带使用与运维资料，本地开发档案不进入交付物。
+    shutil.copytree(ROOT / 'docs', stage / 'docs', ignore=shutil.ignore_patterns('archive', 'MihomoHub-DESIGN*', 'MihomoHub-TECH_STACK.md'))
     shutil.copytree(notices, stage / 'notices')
     archive = output / (name + '.tar.gz')
     # 固定 tar 的身份与时间戳；gzip 同样使用 SOURCE_DATE_EPOCH。
