@@ -61,6 +61,6 @@ Collector 使用与 Gateway 相同的地址策略、TLS 和 `max_ws_message_byte
 
 `version` 输出版本、后端 Commit、前端 Commit、schema、构建时间与内嵌标志，不需要读取主密钥或初始化数据库。`healthcheck` 在 2 秒内访问配置监听地址的本地 `/readyz`；容器用它探活，无需 curl、shell 或 Node。
 
-容器默认 UID/GID 为 65532，数据目录 `/var/lib/mihomo-hub` 必须可写且归该用户；根文件系统可只读。镜像将 CA 证书内置，HTTPS Controller 使用系统信任链，不提供跳过 TLS 校验选项。Named volume 首次挂载继承镜像目录权限；若使用 bind mount，应由管理员预先创建 0700 目录并设置属主。
+主服务容器默认 UID/GID 为 65532，数据目录 `/var/lib/mihomo-hub` 必须可写且归该用户；根文件系统可只读。Compose 的 `init-data` 一次性容器自动创建宿主机挂载目录，并将目录本身设为 `65532:65532`、0700，完成后主服务才启动；不递归修改已有文件。Named volume 首次挂载继承镜像目录权限。直接使用 `docker run` 挂载宿主机目录时，需自行准备目录权限。镜像将 CA 证书内置，HTTPS Controller 使用系统信任链，不提供跳过 TLS 校验选项。
 
 `server.public_origin` 决定 Cookie Secure 属性与 Origin 校验，应与浏览器实际地址一致。HTTPS 反向代理保留 Host、Origin、Cookie，支持四条 WS 的 Upgrade；程序不信任 X-Forwarded-* 推导安全来源。只支持独立 Origin 根路径，不支持将 Hub 挂在任意 URL 子路径。

@@ -99,6 +99,7 @@ jobs:
         run: |
           sh scripts/build-image.sh "dist/mihomo-hub_${{ steps.frontend.outputs.version }}_linux_amd64"
           python3 scripts/smoke-container.py --image "mihomo-hub:${{ steps.frontend.outputs.version }}"
+          python3 scripts/smoke-compose.py --image "mihomo-hub:${{ steps.frontend.outputs.version }}"
       # 只有版本标签才上传镜像；手动运行仍只产出验证包。复用上一步 Buildx 缓存，
       # 在单测、浏览器、双架构构建及容器验收全部通过后发布。
       - name: Image tags

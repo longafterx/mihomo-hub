@@ -1,10 +1,41 @@
 services:
+  init-data:
+    image: alpine:3.22.4@sha256:310c62b5e7ca5b08167e4384c68db0fd2905dd9c7493756d356e893909057601
+    user: "0:0"
+    restart: "no"
+    network_mode: none
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - |
+        chown 65532:65532 /var/lib/mihomo-hub
+        chmod 0700 /var/lib/mihomo-hub
+    volumes:
+      - type: bind
+        source: ${MIHOMOHUB_DATA_DIR:-./data}
+        target: /var/lib/mihomo-hub
+        bind:
+          create_host_path: true
+    read_only: true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - FOWNER
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 32m
+    pids_limit: 16
+
   mihomo-hub:
     image: ${MIHOMOHUB_IMAGE:-ghcr.io/longafterx/mihomo-hub:latest}
     container_name: mihomo-hub
     restart: unless-stopped
+    depends_on:
+      # 目录创建和权限准备成功后才启动非 root 主服务。
+      init-data:
+        condition: service_completed_successfully
     ports:
-      - "127.0.0.1:${MIHOMOHUB_PORT:-11235}:11235"
+      - "${MIHOMOHUB_PORT:-11235}:11235"
     environment:
       # 与端口映射保持一致，也兼容升级前缓存的镜像。
       MIHOMOHUB_LISTEN: 0.0.0.0:11235
@@ -14,8 +45,8 @@ services:
         source: ${MIHOMOHUB_DATA_DIR:-./data}
         target: /var/lib/mihomo-hub
         bind:
-          # 目录由用户准备，避免 Docker 自动创建 root 所有的目录而导致权限错误。
-          create_host_path: false
+          # Compose 会先创建所有容器，因此两个挂载都允许建目录；主服务仍等待权限准备完成。
+          create_host_path: true
     read_only: true
     tmpfs:
       - /tmp:rw,noexec,nosuid,size=16m,mode=1777

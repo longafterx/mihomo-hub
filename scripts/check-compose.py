@@ -30,6 +30,8 @@ for port, origin, directory in [
     assert service['environment']['MIHOMOHUB_PUBLIC_ORIGIN'] == (origin or f'http://127.0.0.1:{port or "11235"}')
     assert str(service['ports'][0]['published']) == (port or '11235')
     assert service['ports'][0]['target'] == 11235
+    assert service['ports'][0].get('host_ip') in (None, '', '0.0.0.0')
+    assert service['depends_on']['init-data']['condition'] == 'service_completed_successfully'
     mount = service['volumes'][0]
     expected = Path(directory or './data')
     if not expected.is_absolute():
@@ -37,6 +39,15 @@ for port, origin, directory in [
     assert mount['type'] == 'bind'
     assert mount['source'] == str(expected.resolve())
     assert mount['target'] == '/var/lib/mihomo-hub'
-    assert not mount['bind'].get('create_host_path', False)
+    assert mount.get('bind', {}).get('create_host_path', True)
+    initializer = config['services']['init-data']
+    assert initializer['volumes'][0]['source'] == mount['source']
+    assert initializer['volumes'][0]['target'] == mount['target']
+    assert initializer['volumes'][0].get('bind', {}).get('create_host_path', True)
+    assert initializer['user'] == '0:0'
+    assert initializer['network_mode'] == 'none'
+    assert initializer['read_only']
+    assert set(initializer['cap_add']) == {'CHOWN', 'FOWNER'}
+    assert initializer['cap_drop'] == ['ALL']
     assert not config.get('volumes')
-print('PASS: latest image, port/Origin defaults and overrides, default/absolute/relative data directories, no automatic directory creation')
+print('PASS: all-interface port mapping, port/Origin overrides, shared default/custom data directories, one-time directory preparation before nonroot service')

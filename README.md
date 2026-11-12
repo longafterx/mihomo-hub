@@ -18,17 +18,16 @@ curl -fL https://raw.githubusercontent.com/longafterx/mihomo-hub/main/compose.ya
 MIHOMOHUB_DATA_DIR=/srv/mihomo-hub/data
 ```
 
-创建所选目录并启动，目录所有者需与容器用户 `65532:65532` 一致：
+直接启动，数据目录和权限会自动准备，无需手动创建或执行 `chown`：
 
 ```bash
-sudo install -d -m 0700 -o 65532 -g 65532 /srv/mihomo-hub/data
 docker compose pull
 docker compose up -d
 ```
 
 打开 http://127.0.0.1:11235 ，首次访问设置登录密码，然后添加 Mihomo 实例。无需执行 `init`。
 
-服务器通过 IP 远程访问时，将 `compose.yaml` 的端口映射改为 `"11235:11235"`，并在 `.env` 中补充浏览器实际访问的地址：
+默认端口 `11235` 允许远程访问。在服务器部署时，在 `.env` 中补充浏览器实际访问的地址：
 
 ```dotenv
 MIHOMOHUB_PUBLIC_ORIGIN=http://你的服务器IP:11235

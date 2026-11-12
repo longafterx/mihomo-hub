@@ -44,7 +44,9 @@ umask 077
 
 部署机器执行 `docker compose pull && docker compose up -d` 即可使用 GHCR 上的 `latest` 镜像，支持 Linux amd64/arm64，无需编译。默认访问 `http://127.0.0.1:11235`，首次打开网页设置登录密码。需要固定版本时设置 `MIHOMOHUB_IMAGE=ghcr.io/longafterx/mihomo-hub:<版本或摘要>`。
 
-Compose 使用宿主机目录挂载，默认 `./data`，相对路径以 `compose.yaml` 所在目录为基准。在 `.env` 设置 `MIHOMOHUB_DATA_DIR=/srv/mihomo-hub/data` 可指定其他目录。镜像默认非 root `65532:65532`，启动前用 `sudo install -d -m 0700 -o 65532 -g 65532 /srv/mihomo-hub/data` 准备所选目录；目录不存在时 Compose 会直接报错，不自动创建 root 所有的目录。数据库和 `secrets/master.key` 均位于该目录。
+Compose 使用宿主机目录挂载，默认 `./data`，相对路径以 `compose.yaml` 所在目录为基准。在 `.env` 设置 `MIHOMOHUB_DATA_DIR=/srv/mihomo-hub/data` 可指定其他目录，无需手动创建。Docker 自动创建目录，随后 `init-data` 一次性容器将目录本身设为 `65532:65532`、0700，成功退出后才启动非 root 主服务。初始化失败时主服务不会启动，可通过 `docker compose logs init-data` 查看错误。初始化不递归修改已有数据库、密钥或备份文件；从其他来源迁入的文件仍需设置正确属主。数据库和 `secrets/master.key` 均位于该目录。
+
+默认端口映射为 `11235:11235`，允许远程访问；在 `.env` 中将 `MIHOMOHUB_PUBLIC_ORIGIN` 设置为实际入口，例如 `http://hugo-ecs:11235`。仅需本机或反向代理访问时，可将映射改为 `127.0.0.1:11235:11235`。
 
 需要从源码构建时，低内存机器可用 `sh scripts/build-image.sh dist/mihomo-hub_0.3.0_linux_amd64` 封装对应架构发布目录；内存充足的构建机可从锁定前端生成静态资源后执行 `sh scripts/build-image.sh`。本地镜像使用 `MIHOMOHUB_IMAGE=mihomo-hub:0.3.0 docker compose up -d` 启动。
 
