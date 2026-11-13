@@ -18,7 +18,7 @@ curl -fL https://raw.githubusercontent.com/longafterx/mihomo-hub/main/compose.ya
 MIHOMOHUB_DATA_DIR=/srv/mihomo-hub/data
 ```
 
-直接启动，数据目录和权限会自动准备，无需手动创建或执行 `chown`：
+直接启动，Docker 自动创建数据目录；Compose 服务以 root 运行，无需额外初始化容器或手动 `chown`：
 
 ```bash
 docker compose pull

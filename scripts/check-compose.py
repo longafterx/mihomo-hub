@@ -24,6 +24,7 @@ for port, origin, directory in [
         ['docker', 'compose', '--env-file', '/dev/null', '-f', str(root / 'compose.yaml'), 'config', '--format', 'json'],
         env=environment,
     ))
+    assert set(config['services']) == {'mihomo-hub'}
     service = config['services']['mihomo-hub']
     assert service['image'] == 'ghcr.io/longafterx/mihomo-hub:latest'
     assert service['environment']['MIHOMOHUB_LISTEN'] == '0.0.0.0:11235'
@@ -31,7 +32,12 @@ for port, origin, directory in [
     assert str(service['ports'][0]['published']) == (port or '11235')
     assert service['ports'][0]['target'] == 11235
     assert service['ports'][0].get('host_ip') in (None, '', '0.0.0.0')
-    assert service['depends_on']['init-data']['condition'] == 'service_completed_successfully'
+    assert not service.get('depends_on')
+    assert service['user'] == '0:0'
+    assert service['read_only']
+    assert service['cap_drop'] == ['ALL']
+    assert service['cap_add'] == ['DAC_OVERRIDE']
+    assert service['security_opt'] == ['no-new-privileges:true']
     mount = service['volumes'][0]
     expected = Path(directory or './data')
     if not expected.is_absolute():
@@ -40,14 +46,6 @@ for port, origin, directory in [
     assert mount['source'] == str(expected.resolve())
     assert mount['target'] == '/var/lib/mihomo-hub'
     assert mount.get('bind', {}).get('create_host_path', True)
-    initializer = config['services']['init-data']
-    assert initializer['volumes'][0]['source'] == mount['source']
-    assert initializer['volumes'][0]['target'] == mount['target']
-    assert initializer['volumes'][0].get('bind', {}).get('create_host_path', True)
-    assert initializer['user'] == '0:0'
-    assert initializer['network_mode'] == 'none'
-    assert initializer['read_only']
-    assert set(initializer['cap_add']) == {'CHOWN', 'FOWNER'}
-    assert initializer['cap_drop'] == ['ALL']
     assert not config.get('volumes')
-print('PASS: all-interface port mapping, port/Origin overrides, shared default/custom data directories, one-time directory preparation before nonroot service')
+print('PASS: single-service deployment, all-interface port mapping, port/Origin overrides, '
+      'default/custom data directories, automatic creation and legacy directory access')

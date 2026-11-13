@@ -63,6 +63,6 @@ Schema 6 移除无业务读取的 `collector_state`、`instance_epochs`，以及
 
 `version` 输出版本、后端 Commit、前端 Commit、schema、构建时间与内嵌标志，不需要读取主密钥或初始化数据库。`healthcheck` 在 2 秒内访问配置监听地址的本地 `/readyz`；容器用它探活，无需 curl、shell 或 Node。
 
-主服务容器默认 UID/GID 为 65532，数据目录 `/var/lib/mihomo-hub` 必须可写且归该用户；根文件系统可只读。Compose 的 `init-data` 一次性容器自动创建宿主机挂载目录，并将目录本身设为 `65532:65532`、0700，完成后主服务才启动；不递归修改已有文件。Named volume 首次挂载继承镜像目录权限。直接使用 `docker run` 挂载宿主机目录时，需自行准备目录权限。镜像将 CA 证书内置，HTTPS Controller 使用系统信任链，不提供跳过 TLS 校验选项。
+镜像默认 UID/GID 为 65532。Compose 只启动一个服务，显式使用 root 写入 Docker 自动创建的宿主机目录；保留只读根文件系统，移除所有能力后仅添加 `DAC_OVERRIDE`，以兼容旧版 UID 65532、0700/0600 权限的数据，不修改已有文件的属主或权限。新建数据库和主密钥权限为 0600，宿主机挂载目录权限由 Docker 或部署者决定。直接使用 `docker run` 时仍按镜像的非 root 默认用户运行：Named volume 首次挂载继承镜像目录权限，宿主机目录挂载需自行准备可写权限。镜像将 CA 证书内置，HTTPS Controller 使用系统信任链，不提供跳过 TLS 校验选项。
 
 `server.public_origin` 决定 Cookie Secure 属性与 Origin 校验，应与浏览器实际地址一致。HTTPS 反向代理保留 Host、Origin、Cookie，支持四条 WS 的 Upgrade；程序不信任 X-Forwarded-* 推导安全来源。只支持独立 Origin 根路径，不支持将 Hub 挂在任意 URL 子路径。

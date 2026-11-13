@@ -7,6 +7,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Compose configuration
+        run: python3 scripts/check-compose.py
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod

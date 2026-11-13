@@ -2,6 +2,8 @@ services:
   mihomo-hub:
     image: ${MIHOMOHUB_IMAGE:-ghcr.io/longafterx/mihomo-hub:latest}
     container_name: mihomo-hub
+    # 直接写入 Docker 自动创建的 root 所有目录，无需额外初始化服务。
+    user: "0:0"
     restart: unless-stopped
     ports:
       - "${MIHOMOHUB_PORT:-11235}:11235"
@@ -14,13 +16,15 @@ services:
         source: ${MIHOMOHUB_DATA_DIR:-./data}
         target: /var/lib/mihomo-hub
         bind:
-          # Compose 会先创建所有容器，因此两个挂载都允许建目录；主服务仍等待权限准备完成。
           create_host_path: true
     read_only: true
     tmpfs:
       - /tmp:rw,noexec,nosuid,size=16m,mode=1777
     cap_drop:
       - ALL
+    cap_add:
+      # 兼容旧版 UID 65532 的私有数据，不修改已有文件的属主或权限。
+      - DAC_OVERRIDE
     security_opt:
       - no-new-privileges:true
     stop_grace_period: 30s

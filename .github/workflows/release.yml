@@ -19,6 +19,9 @@ jobs:
         with:
           path: backend
           fetch-depth: 0
+      - name: Compose configuration
+        working-directory: backend
+        run: python3 scripts/check-compose.py
       - name: Read immutable frontend ref
         id: frontend
         working-directory: backend
@@ -73,7 +76,6 @@ jobs:
           git diff --exit-code -- internal/storage/generated
           test -z "$(git ls-files --others --exclude-standard internal/storage/generated)"
           python3 scripts/smoke-cli.py
-          python3 scripts/check-compose.py
           MIHOMOHUB_EMBED_SMOKE=1 node scripts/smoke-setup.mjs ../frontend
           MIHOMOHUB_EMBED_SMOKE=1 node scripts/smoke-navigation.mjs ../frontend
           MIHOMOHUB_EMBED_SMOKE=1 node scripts/smoke-regressions.mjs ../frontend
