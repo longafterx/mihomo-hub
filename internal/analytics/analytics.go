@@ -1,4 +1,4 @@
-// Package analytics defines bounded, authenticated history query semantics.
+// Package analytics 负责历史查询约束和统计口径，不依赖数据库或 HTTP 框架。
 package analytics
 
 import (
@@ -25,10 +25,14 @@ type Query struct {
 	Limit, Offset int
 }
 
+// Repository 按查询条件读取一次一致的历史数据快照。
 type Repository interface {
-	Query(context.Context, Query) (Result, error)
+	Load(context.Context, Query) (Snapshot, error)
 }
-type Service struct{ Repository Repository }
+type Service struct {
+	Repository  Repository
+	MaxInterval time.Duration
+}
 
 type Result struct {
 	Data any
@@ -170,10 +174,7 @@ func Parse(kind string, values url.Values, now time.Time) (Query, error) {
 		return invalid("step must be 1m, 1h or 1d")
 	}
 	if kind != "connections" && kind != "gaps" {
-		alignment := int64(60000)
-		if q.Step != "1m" {
-			alignment = 3600000
-		}
+		alignment := q.sourceBucketMS()
 		if q.From%alignment != 0 || q.To%alignment != 0 {
 			return invalid("aggregate boundaries must align to UTC minutes (hours for 1h/1d)")
 		}
@@ -216,6 +217,21 @@ func StepMS(step string) int64 {
 	}
 	return 0
 }
+
+// BucketWindow 只选择完整落在查询窗口内的留存桶，避免高估未对齐窗口的覆盖率。
+// 日粒度从小时桶汇总，因此读取窗口仍按小时对齐。
+func (q Query) BucketWindow() (int64, int64) {
+	align := q.sourceBucketMS()
+	return (q.From + align - 1) / align * align, q.To / align * align
+}
+
+func (q Query) sourceBucketMS() int64 {
+	if q.Step == "1m" {
+		return 60000
+	}
+	return 3600000
+}
+
 func (s Service) Query(ctx context.Context, kind string, v url.Values) (Result, error) {
 	q, err := Parse(kind, v, time.Now())
 	if err != nil {
@@ -223,5 +239,15 @@ func (s Service) Query(ctx context.Context, kind string, v url.Values) (Result, 
 	}
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	return s.Repository.Query(ctx, q)
+	// 存储只返回一次一致快照；所有统计口径在事务外基于该快照计算，不再回读数据库。
+	snapshot, err := s.Repository.Load(ctx, q)
+	if err != nil {
+		return Result{}, err
+	}
+	return BuildResult(
+		q,
+		snapshot,
+		time.Now(),
+		s.MaxInterval,
+	)
 }

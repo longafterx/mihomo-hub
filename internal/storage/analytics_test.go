@@ -3,6 +3,7 @@
 package storage_test
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"testing"
@@ -30,10 +31,10 @@ func TestAllHistoryIncludesMoreThan256RetainedInstances(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	repo := storage.Analytics{DB: db, MaxInterval: 5 * time.Second}
+	repo := storage.Analytics{DB: db}
 	for _, kind := range []string{"summary", "traffic", "top", "coverage", "connections", "gaps"} {
 		t.Run(kind, func(t *testing.T) {
-			result, err := repo.Query(t.Context(), analytics.Query{
+			result, err := queryAnalytics(t.Context(), repo, analytics.Query{
 				Kind: kind, From: 0, To: 60000, Step: "1m", Dimension: "host", Limit: 20,
 			})
 			if err != nil {
@@ -65,9 +66,9 @@ func TestHistoricalQueriesIsolationCoverageAndRetainedDeletion(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer reader.Close()
-	repo := storage.Analytics{DB: reader, MaxInterval: 5 * time.Second}
+	repo := storage.Analytics{DB: reader}
 	query := analytics.Query{Kind: "summary", From: 60000, To: 120000, Step: "1m", Limit: 10}
-	result, err := repo.Query(t.Context(), query)
+	result, err := queryAnalytics(t.Context(), repo, query)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -80,7 +81,7 @@ func TestHistoricalQueriesIsolationCoverageAndRetainedDeletion(t *testing.T) {
 	}
 	query.IDs = []string{"one"}
 	query.Kind = "traffic"
-	result, err = repo.Query(t.Context(), query)
+	result, err = queryAnalytics(t.Context(), repo, query)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -90,7 +91,7 @@ func TestHistoricalQueriesIsolationCoverageAndRetainedDeletion(t *testing.T) {
 	}
 	query.Kind = "top"
 	query.Dimension = "host"
-	result, err = repo.Query(t.Context(), query)
+	result, err = queryAnalytics(t.Context(), repo, query)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -99,7 +100,7 @@ func TestHistoricalQueriesIsolationCoverageAndRetainedDeletion(t *testing.T) {
 		t.Fatal(top)
 	}
 	query.Kind = "connections"
-	result, err = repo.Query(t.Context(), query)
+	result, err = queryAnalytics(t.Context(), repo, query)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -108,7 +109,7 @@ func TestHistoricalQueriesIsolationCoverageAndRetainedDeletion(t *testing.T) {
 		t.Fatal(records)
 	}
 	query.Kind = "gaps"
-	result, err = repo.Query(t.Context(), query)
+	result, err = queryAnalytics(t.Context(), repo, query)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -121,7 +122,7 @@ func TestHistoricalQueriesIsolationCoverageAndRetainedDeletion(t *testing.T) {
 		t.Fatal(err)
 	}
 	query.Kind = "coverage"
-	result, err = repo.Query(t.Context(), query)
+	result, err = queryAnalytics(t.Context(), repo, query)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -132,7 +133,7 @@ func TestHistoricalQueriesIsolationCoverageAndRetainedDeletion(t *testing.T) {
 	query.Step = "1h"
 	query.From = 0
 	query.To = 3600000
-	result, err = repo.Query(t.Context(), query)
+	result, err = queryAnalytics(t.Context(), repo, query)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -140,7 +141,100 @@ func TestHistoricalQueriesIsolationCoverageAndRetainedDeletion(t *testing.T) {
 		t.Fatal("hour aggregation", result)
 	}
 	query.IDs = []string{"unknown"}
-	if _, err := repo.Query(t.Context(), query); !errors.Is(err, analytics.ErrNotFound) {
+	if _, err := queryAnalytics(t.Context(), repo, query); !errors.Is(err, analytics.ErrNotFound) {
 		t.Fatal(err)
 	}
+}
+
+func TestAnalyticsSnapshotRemainsStableAfterLaterCommits(t *testing.T) {
+	t.Parallel()
+	db, path := telemetryDB(t)
+	if _, err := db.Exec(`INSERT INTO traffic_minute
+		(instance_id,bucket_ms,total_upload,observed_ms) VALUES('one',0,10,60000)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO traffic_gap_intervals
+		(id,instance_id,epoch_id,from_ms,to_ms,reason,resolution)
+		VALUES('first','one','epoch',0,1000,'sampling_gap','unknown')`); err != nil {
+		t.Fatal(err)
+	}
+	reader, err := storage.OpenReader(t.Context(), path, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { reader.Close() })
+	repo := storage.Analytics{DB: reader}
+	query := analytics.Query{Kind: "summary", IDs: []string{"one"}, To: 60000, Step: "1m"}
+	before, err := repo.Load(t.Context(), query)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tx, err := db.BeginTx(t.Context(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+	for _, statement := range []string{
+		`UPDATE traffic_minute SET total_upload=20 WHERE instance_id='one'`,
+		`UPDATE instances SET name='renamed',deleted_at_ms=60000 WHERE id='one'`,
+		`INSERT INTO traffic_gap_intervals (id,instance_id,epoch_id,from_ms,to_ms,reason,resolution)
+		 VALUES('second','one','epoch',1000,2000,'sampling_gap','unknown')`,
+	} {
+		if _, err := tx.ExecContext(t.Context(), statement); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	after, err := repo.Load(t.Context(), query)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// 关闭读池后仍能计算两个版本，确保结果构建不回读数据库或混用后续提交。
+	if err := reader.Close(); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name, instanceName string
+		snapshot           analytics.Snapshot
+		upload, gaps       int64
+		deleted            bool
+	}{
+		{name: "before commit", snapshot: before, instanceName: "one", upload: 10, gaps: 1},
+		{name: "after commit", snapshot: after, instanceName: "renamed", upload: 20, gaps: 2, deleted: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			result, err := analytics.BuildResult(
+				query,
+				tc.snapshot,
+				time.UnixMilli(60000),
+				time.Minute,
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if result.Data.(analytics.Totals).Upload != tc.upload || result.Meta.GapCount != tc.gaps {
+				t.Fatalf("mixed snapshot counters: %+v", result)
+			}
+			coverage := result.Meta.Coverage[0]
+			if coverage.Name != tc.instanceName || coverage.Deleted != tc.deleted || coverage.SampleCoverage != 1 {
+				t.Fatalf("mixed snapshot metadata: %+v", coverage)
+			}
+		})
+	}
+}
+
+// 查询和统计分别经过各自接口，保留原有数据库回归对最终统计结果的断言。
+func queryAnalytics(ctx context.Context, repo storage.Analytics, query analytics.Query) (analytics.Result, error) {
+	snapshot, err := repo.Load(ctx, query)
+	if err != nil {
+		return analytics.Result{}, err
+	}
+	return analytics.BuildResult(
+		query,
+		snapshot,
+		time.Now(),
+		5*time.Second,
+	)
 }
